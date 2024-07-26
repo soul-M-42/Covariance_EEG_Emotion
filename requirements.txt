@@ -1,0 +1,17 @@
+captum==0.7.0
+gymnasium==0.29.1
+hdf5storage==0.1.19
+hydra-core==1.3.2
+matplotlib==3.9.1
+mne==1.7.1
+moviepy==1.0.3
+numpy==2.0.0
+omegaconf==2.3.0
+pytorch_lightning==2.3.1
+scipy==1.14.0
+seaborn==0.13.2
+torch==2.3.1
+torchmetrics==1.4.0.post0
+torchvision==0.18.1
+tqdm==4.66.4
+transformers==4.42.3
