@@ -96,8 +96,13 @@ class Channel_Alignment(nn.Module):
 def cov_mat(data):
     batch_size, t, num_channels = data.shape
     data_centered = data - data.mean(dim=1, keepdim=True)
-    covariance_matrices = torch.matmul(data_centered.transpose(1, 2), data_centered) / (t - 1)
-    return covariance_matrices
+    cov_matrices = torch.matmul(data_centered.transpose(1, 2), data_centered) / (t - 1)
+    # norm
+    mean = cov_matrices.mean(dim=0)
+    std = cov_matrices.std(dim=0)
+    norm_cov_matrices = (cov_matrices - mean) / std
+
+    return norm_cov_matrices
 
 def frobenius_distance(matrix_a, matrix_b):
     # 计算Frobenius距离
@@ -147,6 +152,15 @@ def loss_proto(cov, label, protos):
 
     return loss, acc
 
+def loss_align(cov_batch1, cov_batch2):
+    batchsize = cov_batch1.size(0)
+    distances = []
+    cnt = 0
+    for i in range(batchsize):
+        for j in range(i, batchsize):
+            distances.append(frobenius_distance(cov_batch1[i], cov_batch2[i]))
+    distances = torch.Tensor(distances)
+    return torch.log(distances.mean())
 
 
 class DualModel_PL(pl.LightningModule):
@@ -168,6 +182,7 @@ class DualModel_PL(pl.LightningModule):
         self.max_epochs = cfg.train.max_epochs
         self.restart_times = cfg.train.restart_times
         self.is_logger = cfg.log.is_logger
+        self.align_factor = cfg.align.factor
     def forward(self, batch, channel_names):
         feature = self.channelwiseEncoder(batch, channel_names)
         return feature 
@@ -188,6 +203,7 @@ class DualModel_PL(pl.LightningModule):
         fea_2 = self.alignmentModule_2(fea_2)
         cov_1 = cov_mat(fea_1)
         cov_2 = cov_mat(fea_2)
+        loss_Align = self.align_factor * loss_align(cov_1, cov_2)
         # print(cov_1.shape, cov_2.shape)
         # print(y_1, y_2)
         loss_class_1, acc_1 = loss_proto(cov_1, y_1, self.protos_1)
@@ -196,6 +212,7 @@ class DualModel_PL(pl.LightningModule):
         self.log_dict({
                     'loss_class_1/train': loss_class_1, 
                     'loss_class_2/train': loss_class_2, 
+                    'loss_align/train': loss_Align, 
                     'acc_1/train': acc_1, 
                     'acc_2/train': acc_2, 
                     'lr': self.optimizers().param_groups[-1]['lr']
@@ -205,7 +222,7 @@ class DualModel_PL(pl.LightningModule):
         # fea.shape = [channel, n_filter, time']
         # self.criterion.to(data.device)   # put it in the loss function
 
-        loss = loss_class_1 + loss_class_2
+        loss = loss_class_1 + loss_class_2 + loss_Align
         return loss
     
     def validation_step(self, batch, batch_idx):
@@ -218,7 +235,8 @@ class DualModel_PL(pl.LightningModule):
         fea_2 = self.alignmentModule_2(fea_2)
         cov_1 = cov_mat(fea_1)
         cov_2 = cov_mat(fea_2)
-        # print(cov_1.shape, cov_2.shape)
+        loss_Align = self.align_factor * loss_align(cov_1, cov_2)
+        # print(loss_Align)
         # print(y_1, y_2)
         loss_class_1, acc_1 = loss_proto(cov_1, y_1, self.protos_1)
         loss_class_2, acc_2 = loss_proto(cov_2, y_2, self.protos_2)
@@ -226,6 +244,7 @@ class DualModel_PL(pl.LightningModule):
         self.log_dict({
                     'loss_class_1/val': loss_class_1, 
                     'loss_class_2/val': loss_class_2, 
+                    'loss_align/val': loss_Align, 
                     'acc_1/val': acc_1, 
                     'acc_2/val': acc_2, 
                     'lr/val': self.optimizers().param_groups[-1]['lr']

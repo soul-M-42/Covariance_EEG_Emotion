@@ -10,10 +10,11 @@ seed: 7
 channel_encoder:
   patch_size: 30
   hidden_dim: 30
-  out_dim: 20
+  out_dim: 10
   patch_stride: 15
 
 align:
+  factor: 0.7
   n_channel_uni: 60
 
 log:
