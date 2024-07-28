@@ -51,7 +51,7 @@ class channel_MLLA(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool1d(1)
         self.encoders = nn.ModuleList([MLLA_BasicLayer(
                                     in_dim=patch_size, hidden_dim=hidden_dim, out_dim=out_dim,
-                                    depth=2, num_heads=8) 
+                                    depth=1, num_heads=8) 
                                     for _ in range(self.n_channels)])
 
     def forward(self, x, x_channel_names):
@@ -168,7 +168,7 @@ class DualModel_PL(pl.LightningModule):
         super().__init__()
         self.cfg = cfg
         self.channelwiseEncoder = channel_MLLA(
-            standard_channels=cfg.data_2.channels, 
+            standard_channels=cfg.data_1.channels, 
             patch_size=cfg.channel_encoder.patch_size,
             hidden_dim=cfg.channel_encoder.hidden_dim,
             out_dim=cfg.channel_encoder.out_dim,
@@ -222,7 +222,7 @@ class DualModel_PL(pl.LightningModule):
         # fea.shape = [channel, n_filter, time']
         # self.criterion.to(data.device)   # put it in the loss function
 
-        loss = loss_class_1 + loss_class_2 + loss_Align
+        loss = loss_class_1 + loss_class_2
         return loss
     
     def validation_step(self, batch, batch_idx):
