@@ -40,9 +40,10 @@ train:
   max_epochs: 30
   min_epochs: 10
   patience: 30
-  num_workers: 8
   restart_times: ${train.max_epochs}  # scheduler
   val_sub_p: 0.8
+  batch_size: 128
+  num_workers: 16
 
 
 mlp:
