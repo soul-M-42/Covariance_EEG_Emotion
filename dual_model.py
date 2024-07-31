@@ -7,6 +7,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from MLLA_test import MLLA_BasicLayer
+os.environ["GEOMSTATS_BACKEND"] = 'numpy'
+# torch.set_default_tensor_type('torch.cuda.FloatTensor')
+import geomstats._backend as gs
+from geomstats.learning.preprocessing import ToTangentSpace
+from geomstats.geometry.spd_matrices import SPDAffineMetric
+from geomstats.geometry.spd_matrices import SPDMatrices
 
 class channelwiseEncoder(nn.Module):
     def __init__(self, standard_channels, n_filter):
@@ -162,6 +168,51 @@ def loss_align(cov_batch1, cov_batch2):
     distances = torch.Tensor(distances)
     return torch.log(distances.mean())
 
+def extract_leading_eig_vector(data_dim, data, device='cpu'):
+    geom_backend = torch if device == 'gpu' else np
+    # data_dim = 4
+    matrix_data = geom_backend.zeros([data.shape[0],data_dim,data_dim])
+    
+    for specimen in range(data.shape[0]):
+        this_specimen_data = data[specimen,:]
+        this_specimen_matrix = geom_backend.zeros([data_dim,data_dim])
+        # for 
+        # this_specimen_matrix[i,j]
+        for row in range(data_dim):
+            
+            col_data = geom_backend.concatenate((geom_backend.zeros(row),this_specimen_data[int((row*(data_dim*2-row+1))/2):int(((row*(data_dim*2-row+1))/2))+data_dim-row]))
+            
+            this_specimen_matrix[row,:] = col_data
+            
+        this_specimen_matrix = (this_specimen_matrix - geom_backend.eye(data_dim,data_dim) * this_specimen_matrix).T +this_specimen_matrix
+        
+        matrix_data[specimen,:,:] = this_specimen_matrix
+        
+        # reshape_matrix_data
+    return matrix_data   
+
+def cov_to_riem(cov, tts, phase, device='cpu'):
+    n_channel = cov.shape[1]
+    manifold_1 = SPDMatrices(n_channel, equip=False)
+    manifold_1.equip_with_metric(SPDAffineMetric)
+    if phase == 'train':
+        if tts is None:
+            tts = ToTangentSpace(space=manifold_1)
+        if(device == 'cpu'):
+            tts.fit(cov.cpu().detach().numpy())
+        elif(device == 'gpu'):
+            tts.fit(cov)
+        else:
+            raise("WTF device r u using")
+    if device == 'cpu':
+        cov = tts.transform(cov.cpu().detach().numpy())
+    elif device == 'gpu':
+        cov = tts.transform(cov)
+    cov = extract_leading_eig_vector(n_channel,cov)
+    cov = torch.tensor(cov)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    cov = cov.to(device)
+    return cov, tts
 
 class DualModel_PL(pl.LightningModule):
     def __init__(self, cfg) -> None:
@@ -183,6 +234,8 @@ class DualModel_PL(pl.LightningModule):
         self.restart_times = cfg.train.restart_times
         self.is_logger = cfg.log.is_logger
         self.align_factor = cfg.align.factor
+        self.tts_1 = None
+        self.tts_2 = None
     def forward(self, batch, channel_names):
         feature = self.channelwiseEncoder(batch, channel_names)
         return feature 
@@ -203,12 +256,27 @@ class DualModel_PL(pl.LightningModule):
         fea_2 = self.alignmentModule_2(fea_2)
         cov_1 = cov_mat(fea_1)
         cov_2 = cov_mat(fea_2)
+        if self.cfg.align.to_riem:
+            cov_1, tts_1 = cov_to_riem(cov_1, self.tts_1, 'train')
+            cov_2, tts_2 = cov_to_riem(cov_2, self.tts_2, 'train')
+            self.tts_1 = tts_1
+            self.tts_2 = tts_2
+
         loss_Align = self.align_factor * loss_align(cov_1, cov_2)
         # print(cov_1.shape, cov_2.shape)
         # print(y_1, y_2)
         loss_class_1, acc_1 = loss_proto(cov_1, y_1, self.protos_1)
         loss_class_2, acc_2 = loss_proto(cov_2, y_2, self.protos_2)
         # print(f'train/loss_class_1={loss_class_1},train/loss_class_2={loss_class_2},train/acc_1={acc_1},train/acc_2={acc_2}')
+        
+        # # Check grad 
+        # for name, param in self.named_parameters():
+        #     if param.grad is not None:
+        #         grad_norm = param.grad.data.norm(2).item()
+        #         print(f'grad_norm_{name}', grad_norm)
+        # print('\n')
+        
+
         self.log_dict({
                     'loss_class_1/train': loss_class_1, 
                     'loss_class_2/train': loss_class_2, 
@@ -235,6 +303,12 @@ class DualModel_PL(pl.LightningModule):
         fea_2 = self.alignmentModule_2(fea_2)
         cov_1 = cov_mat(fea_1)
         cov_2 = cov_mat(fea_2)
+        
+        if self.cfg.align.to_riem:
+            if self.tts_1 is not None:
+                cov_1, _ = cov_to_riem(cov_1, self.tts_1, 'val')
+                cov_2, _ = cov_to_riem(cov_2, self.tts_2, 'val')
+
         loss_Align = self.align_factor * loss_align(cov_1, cov_2)
         # print(loss_Align)
         # print(y_1, y_2)

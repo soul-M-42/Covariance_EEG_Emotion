@@ -15,11 +15,13 @@ channel_encoder:
   patch_stride: 10
 
 align:
+  device: cpu
   factor: 0.7
   n_channel_uni: 60
+  to_riem: False
 
 log:
-  is_logger: True
+  is_logger: False
   logpath: 'log'
   run: 4
   proj_name: 'Dual_MMLA'
