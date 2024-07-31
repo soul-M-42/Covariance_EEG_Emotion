@@ -12,19 +12,19 @@ channel_encoder:
   patch_size: 30
   hidden_dim: 30
   out_dim: 10
-  patch_stride: 10
+  patch_stride: 5
 
 align:
   device: cpu
   factor: 0.7
   n_channel_uni: 60
-  to_riem: False
+  to_riem: True
 
 log:
-  is_logger: False
+  is_logger: True
   logpath: 'log'
   run: 4
-  proj_name: 'Dual_MMLA'
+  proj_name: 'Dual_MMLA_riem'
 
   exp_name: ''
 

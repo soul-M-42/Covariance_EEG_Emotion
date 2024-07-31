@@ -36,8 +36,9 @@ class PairedDataset(Dataset):
         return item_a, item_b
 
 class MultiEEGDataModule(pl.LightningDataModule):
-    def __init__(self, data1, data2, fold, n_folds, batch_size=64, num_workers=8):
+    def __init__(self, data1, data2, fold, n_folds, batch_size=64, num_workers=8, device='cpu'):
         super().__init__()
+        self.device = device
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.data1 = data1
@@ -63,9 +64,11 @@ class MultiEEGDataModule(pl.LightningDataModule):
             self.valset_2 = EEG_Dataset(self.data2, val_subs=self.val_subs_2, mods='val',sliced=False)
             self.val_dataset = PairedDataset(self.valset_1, self.valset_2)
     def train_dataloader(self) -> torch.Any:
-        return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=self.num_workers)
+        return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=self.num_workers,
+                          generator=torch.Generator(device='cuda'))
     def val_dataloader(self) -> torch.Any:
-        return DataLoader(self.val_dataset, batch_size=self.batch_size, num_workers=self.num_workers)
+        return DataLoader(self.val_dataset, batch_size=self.batch_size, num_workers=self.num_workers,
+                          generator=torch.Generator(device='cuda'))
         
     
 

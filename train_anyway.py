@@ -18,6 +18,7 @@ log = logging.getLogger(__name__)
 
 @hydra.main(config_path="cfgs_dual", config_name="config_dual", version_base="1.3")
 def run_pipeline(cfg: DictConfig):
+    os.environ["GEOMSTATS_BACKEND"] = 'numpy' if cfg.align.device == 'cpu' else 'pytorch'
 # 1. Load two datasets, with same time_window length, and sample from two datasets
     pl.seed_everything(cfg.seed)
     torch.backends.cudnn.deterministic = True
@@ -32,7 +33,8 @@ def run_pipeline(cfg: DictConfig):
             if(cfg.log.is_logger):
                 os.makedirs(save_dir)
         logger = TensorBoardLogger(save_dir=save_dir, name=run_name)
-        dm = MultiEEGDataModule(cfg.data_1, cfg.data_2, fold, n_folds, batch_size=cfg.train.batch_size, num_workers=cfg.train.num_workers)
+        dm = MultiEEGDataModule(cfg.data_1, cfg.data_2, fold, n_folds, batch_size=cfg.train.batch_size, num_workers=cfg.train.num_workers,
+                                device=cfg.align.device)
         dm.setup("fit")
 
     # 2. define channel_specific encoder
