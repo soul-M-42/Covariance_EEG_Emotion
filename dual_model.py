@@ -7,9 +7,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from MLLA_test import MLLA_BasicLayer
-os.environ["GEOMSTATS_BACKEND"] = 'numpy' 
+os.environ["GEOMSTATS_BACKEND"] = 'pytorch' 
 torch.set_default_tensor_type('torch.cuda.FloatTensor')
-import geomstats.backend as gs
+import geomstats._backend as gs
 from geomstats.learning.preprocessing import ToTangentSpace
 from geomstats.geometry.spd_matrices import SPDAffineMetric
 from geomstats.geometry.spd_matrices import SPDMatrices
@@ -170,15 +170,16 @@ def loss_proto(cov, label, protos):
 
 def loss_align(cov_batch1, cov_batch2):
     batchsize = cov_batch1.size(0)
-    distances = []
+    distances = 0
     cnt = 0
     for i in range(batchsize):
         for j in range(i, batchsize):
-            distances.append(frobenius_distance(cov_batch1[i], cov_batch2[i]))
-    distances = torch.Tensor(distances)
-    return torch.log(distances.mean())
+            distances = distances + frobenius_distance(cov_batch1[i], cov_batch2[j])
+            cnt = cnt + 1
+    
+    return torch.log(distances / cnt + 1.0)
 
-def extract_leading_eig_vector(data_dim, data, device='cpu'):
+def extract_leading_eig_vector(data_dim, data, device='gpu'):
     geom_backend = torch if device == 'gpu' else np
     # data_dim = 4
     matrix_data = geom_backend.zeros([data.shape[0],data_dim,data_dim])
@@ -201,14 +202,14 @@ def extract_leading_eig_vector(data_dim, data, device='cpu'):
         # reshape_matrix_data
     return matrix_data   
 
-def cov_to_riem(cov, tts, phase, device='cpu'):
+def cov_to_riem(cov, tts, phase, device='gpu'):
     n_channel = cov.shape[1]
     manifold_1 = SPDMatrices(n_channel, equip=False)
     manifold_1.equip_with_metric(SPDAffineMetric)
     if phase == 'train':
         if tts is None:
             tts = ToTangentSpace(space=manifold_1)
-        # for cov_i in cov.cpu().detach().numpy():
+        # for cov_i in cov:
         #     print(manifold_1.belongs(cov_i))
         if(device == 'cpu'):
             tts.fit(cov.cpu().detach().numpy())
@@ -222,9 +223,9 @@ def cov_to_riem(cov, tts, phase, device='cpu'):
         cov = tts.transform(cov)
     
     cov = extract_leading_eig_vector(n_channel,cov,device=device)
-    cov = torch.tensor(cov)
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    cov = cov.to(device)
+    # cov = torch.tensor(cov)
+    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # cov = cov.to(device)
     return cov, tts
 
 class DualModel_PL(pl.LightningModule):
@@ -305,8 +306,12 @@ class DualModel_PL(pl.LightningModule):
                     on_step=False, on_epoch=True, prog_bar=True)
         # fea.shape = [channel, n_filter, time']
         # self.criterion.to(data.device)   # put it in the loss function
-
+        # for name, param in self.channelwiseEncoder.named_parameters():
+        #     if param.requires_grad:
+        #         print(f"Gradient of {name}: {param.grad}")
         loss = loss_class_1 + loss_class_2
+        if self.cfg.align.align_loss:
+            loss = loss + loss_Align
         return loss
     
     def validation_step(self, batch, batch_idx):
@@ -343,8 +348,9 @@ class DualModel_PL(pl.LightningModule):
                     on_step=False, on_epoch=True, prog_bar=True)
         # fea.shape = [channel, n_filter, time']
         # self.criterion.to(data.device)   # put it in the loss function
-
         loss = loss_class_1 + loss_class_2
+        if self.cfg.align.align_loss:
+            loss = loss + loss_Align
         return loss
     
     def predict_step(self, batch, batch_idx):

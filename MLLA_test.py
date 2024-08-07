@@ -121,6 +121,9 @@ class MLLA_BasicLayer(nn.Module):
             for i in range(depth)])
 
     def forward(self, x):
+        # for name, param in self.read_in.named_parameters():
+        #     if param.requires_grad:
+        #         print(f"Gradient of {name}: {param.grad}")
         x = self.read_in(x)
         for blk in self.blocks:
             x = blk(x)
