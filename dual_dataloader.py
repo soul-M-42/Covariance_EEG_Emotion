@@ -17,8 +17,8 @@ def get_train_subs(n_subs, fold, n_folds):
     else:
         val_subs = np.arange(n_per * fold, n_subs)            
     train_subs = list(set(np.arange(n_subs)) - set(val_subs))
-    if len(val_subs) == 1:
-        val_subs = list(val_subs) + train_subs
+    # if len(val_subs) == 1:
+    #     val_subs = list(val_subs) + train_subs
     return train_subs, val_subs
 class PairedDataset(Dataset):
     def __init__(self, dataset_a, dataset_b):

@@ -2,30 +2,32 @@
 defaults:
   - _self_
   - data_1: SEEDV
-  # - data_2: FACED_blink_only
   - data_2: FACED_blink_only
+  # WARNING: REMEMBER TO CHANGE train.n_fold WHEN CHANGE DATASET/DATASET_SMALL
+  # SMALL: fold=2
+  # NORMAL: fold=16
   - model: cnn_att
 
 seed: 7
 
 channel_encoder:
   patch_size: 30
-  hidden_dim: 15
-  out_dim: 3
+  hidden_dim: 30
+  out_dim: 10
   patch_stride: 5
 
 align:
   device: gpu
-  factor: 0.6
-  n_channel_uni: 60
-  to_riem: False
-  align_loss: True
+  factor: 0.114
+  n_channel_uni: 30
+  to_riem: True
+  align_loss: False
 
 log:
   is_logger: True
   logpath: 'log'
   run: 4
-  proj_name: 'Dual_MMLA_timeLen=${data_1.timeLen}_CDA=${align.align_loss}_Riem=${align.to_riem}_patchSize=${channel_encoder.patch_size}_patchStride=${channel_encoder.patch_stride}_hidden_dim=${channel_encoder.hidden_dim}_out_dim=${channel_encoder.out_dim}_wd=${train.wd}_alignFactor=${align.factor}'
+  proj_name: 'Dual_MMLA_log_timeLen=${data_1.timeLen}_CDA=${align.align_loss}_Riem=${align.to_riem}_patchSize=${channel_encoder.patch_size}_patchStride=${channel_encoder.patch_stride}_hidden_dim=${channel_encoder.hidden_dim}_out_dim=${channel_encoder.out_dim}_channelUni=${align.n_channel_uni}_wd=${train.wd}_alignFactor=${align.factor}'
   # CDA for Cross Dataset Align
 
   exp_name: ''
@@ -34,20 +36,20 @@ log:
   cp_dir: '/mnt/data/model_weights/DUAL_cp'   
 
 train:
-  n_fold: 10
+  n_fold: 16
   gpus: [0]
   iftest: False
   # n_subs: ${data.n_subs}
-  lr: 0.0007
-  wd: 0.00015
+  lr: 1e-4
+  wd: 0.0001
   loss_temp: 0.07
-  max_epochs: 30
+  max_epochs: 60
   min_epochs: 10
   patience: 30
   restart_times: ${train.max_epochs}  # scheduler
   val_sub_p: 0.8
-  batch_size: 96
-  num_workers: 16
+  batch_size: 64
+  num_workers: 32
 
 
 mlp:
