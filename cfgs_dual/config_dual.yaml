@@ -20,11 +20,11 @@ align:
   device: gpu
   factor: 0.514
   n_channel_uni: 10
-  to_riem: True
+  to_riem: False
   align_loss: False
 
 log:
-  is_logger: False
+  is_logger: True
   logpath: 'log'
   run: 4
   proj_name: 'Dual_Single_timeLen=${data_1.timeLen}_CDA=${align.align_loss}_Riem=${align.to_riem}_patchSize=${channel_encoder.patch_size}_patchStride=${channel_encoder.patch_stride}_hidden_dim=${channel_encoder.hidden_dim}_out_dim=${channel_encoder.out_dim}_channelUni=${align.n_channel_uni}_wd=${train.wd}_alignFactor=${align.factor}'
