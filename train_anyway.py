@@ -29,10 +29,11 @@ def run_pipeline(cfg: DictConfig):
         print(f'fold {fold}\n')
         run_name = f'{cfg.log.proj_name}'
         save_dir = os.path.join(os.getcwd(), cfg.log.logpath, run_name, str(fold))
+        logger = None
         if not os.path.exists(save_dir):
             if(cfg.log.is_logger):
                 os.makedirs(save_dir)
-        logger = TensorBoardLogger(save_dir=save_dir, name=run_name)
+                logger = TensorBoardLogger(save_dir=save_dir, name=run_name)
         dm = MultiEEGDataModule(cfg.data_1, cfg.data_2, fold, n_folds, batch_size=cfg.train.batch_size, num_workers=cfg.train.num_workers,
                                 device=cfg.align.device)
         dm.setup("fit")

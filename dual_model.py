@@ -6,12 +6,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from MLLA_test import MLLA_BasicLayer
-os.environ["GEOMSTATS_BACKEND"] = 'pytorch' 
+# os.environ["GEOMSTATS_BACKEND"] = 'pytorch' 
 torch.set_default_tensor_type('torch.cuda.FloatTensor')
-import geomstats._backend as gs
-from geomstats.learning.preprocessing import ToTangentSpace
-from geomstats.geometry.spd_matrices import SPDAffineMetric
-from geomstats.geometry.spd_matrices import SPDMatrices
 import matplotlib.pyplot as plt
 
 class channelwiseEncoder(nn.Module):
@@ -55,10 +51,13 @@ class channel_MLLA(nn.Module):
         self.patch_size = patch_size
         self.patch_stride = patch_stride
         self.avgpool = nn.AdaptiveAvgPool1d(1)
-        self.encoders = nn.ModuleList([MLLA_BasicLayer(
+        # self.encoders = nn.ModuleList([MLLA_BasicLayer(
+        #                             in_dim=patch_size, hidden_dim=hidden_dim, out_dim=out_dim,
+        #                             depth=1, num_heads=8) 
+        #                             for _ in range(self.n_channels)])
+        self.encoder = MLLA_BasicLayer(
                                     in_dim=patch_size, hidden_dim=hidden_dim, out_dim=out_dim,
                                     depth=1, num_heads=8) 
-                                    for _ in range(self.n_channels)])
 
     def forward(self, x, x_channel_names):
         n_channels_data = len(x_channel_names)
@@ -73,8 +72,9 @@ class channel_MLLA(nn.Module):
             channel_data = to_patch(channel_data, patch_size=self.patch_size, stride=self.patch_stride)
             # print(channel_data.shape)
             # [Batch, time(N), channel(C)]
-            encoder_index = self.standard_channels.index(x_channel_names[i])
-            out_channel_i = self.encoders[encoder_index](channel_data)
+            # encoder_index = self.standard_channels.index(x_channel_names[i])
+            # out_channel_i = self.encoders[encoder_index](channel_data)
+            out_channel_i = self.encoder(channel_data)
             channel_data = channel_data.permute(0, 2, 1)
             outputs.append(out_channel_i)
         outputs = torch.stack(outputs, dim=1)
@@ -293,31 +293,6 @@ class DualModel_PL(pl.LightningModule):
             # reshape_matrix_data
         return matrix_data   
 
-    def cov_to_riem(self, cov, tts, phase, device='gpu'):
-        n_channel = cov.shape[1]
-        manifold_1 = SPDMatrices(n_channel, equip=False)
-        manifold_1.equip_with_metric(SPDAffineMetric)
-        if phase == 'train':
-            if tts is None:
-                tts = ToTangentSpace(space=manifold_1)
-            # for cov_i in cov:
-            #     print(manifold_1.belongs(cov_i))
-            if(device == 'cpu'):
-                tts.fit(cov.cpu().detach().numpy())
-            elif(device == 'gpu'):
-                tts.fit(cov)
-            else:
-                raise("WTF device r u using")
-        if device == 'cpu':
-            cov = tts.transform(cov.cpu().detach().numpy())
-        elif device == 'gpu':
-            cov = tts.transform(cov)
-        
-        cov = self.extract_leading_eig_vector(n_channel,cov,device=device)
-        # cov = torch.tensor(cov)
-        # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        # cov = cov.to(device)
-        return cov, tts
     
     def forward(self, batch, channel_names):
         feature = self.channelwiseEncoder(batch, channel_names)
