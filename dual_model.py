@@ -44,7 +44,7 @@ def to_patch(data, patch_size=50, stride=25):
     return patches
 
 class channel_MLLA(nn.Module):
-    def __init__(self, standard_channels, patch_size, hidden_dim, out_dim, patch_stride):
+    def __init__(self, standard_channels, patch_size, hidden_dim, out_dim, depth, patch_stride):
         super().__init__()
         self.standard_channels = standard_channels
         self.n_channels = len(standard_channels)
@@ -57,7 +57,7 @@ class channel_MLLA(nn.Module):
         #                             for _ in range(self.n_channels)])
         self.encoder = MLLA_BasicLayer(
                                     in_dim=patch_size, hidden_dim=hidden_dim, out_dim=out_dim,
-                                    depth=1, num_heads=8) 
+                                    depth=depth, num_heads=8) 
 
     def forward(self, x, x_channel_names):
         n_channels_data = len(x_channel_names)
@@ -102,7 +102,7 @@ class Channel_Alignment(nn.Module):
 
 
 class DualModel_PL(pl.LightningModule):
-    def __init__(self, cfg) -> None:
+    def __init__(self, cfg, dm) -> None:
         super().__init__()
         self.cfg = cfg
         self.channelwiseEncoder = channel_MLLA(
@@ -110,14 +110,15 @@ class DualModel_PL(pl.LightningModule):
             patch_size=cfg.channel_encoder.patch_size,
             hidden_dim=cfg.channel_encoder.hidden_dim,
             out_dim=cfg.channel_encoder.out_dim,
+            depth=cfg.channel_encoder.depth,
             patch_stride=cfg.channel_encoder.patch_stride)
         # self.channelwiseEncoder = channelwiseEncoder(n_filter=cfg.channel_encoder.out_dim, standard_channels=cfg.data_1.channels)
         self.alignmentModule_1 = Channel_Alignment(cfg.data_1.n_channs*cfg.channel_encoder.out_dim, cfg.align.n_channel_uni)
         self.alignmentModule_2 = Channel_Alignment(cfg.data_2.n_channs*cfg.channel_encoder.out_dim, cfg.align.n_channel_uni)
         self.protos_1 = None
         self.protos_2 = None
-        # self.protos_1 = self.init_proto_rand(dim=cfg.align.n_channel_uni, n_class=cfg.data_1.n_class)
-        # self.protos_2 = self.init_proto_rand(dim=cfg.align.n_channel_uni, n_class=cfg.data_2.n_class)
+        self.protos_1 = self.init_proto_rand(dim=cfg.align.n_channel_uni, n_class=cfg.data_1.n_class)
+        self.protos_2 = self.init_proto_rand(dim=cfg.align.n_channel_uni, n_class=cfg.data_2.n_class)
         self.lr = cfg.train.lr
         self.wd = cfg.train.wd
         self.max_epochs = cfg.train.max_epochs
@@ -126,6 +127,10 @@ class DualModel_PL(pl.LightningModule):
         self.align_factor = cfg.align.factor
         self.tts_1 = None
         self.tts_2 = None
+        # self.dm = dm
+        # self.train_dataset = dm.train_dataset
+        # self.train_set_1 = self.train_dataset.dataset_a
+        # self.train_set_2 = self.train_dataset.dataset_b
     
     def show_and_save_img(self, data, name):
         if isinstance(data, torch.Tensor) and data.is_cuda:
@@ -144,19 +149,23 @@ class DualModel_PL(pl.LightningModule):
         # mean = cov_matrices.mean(dim=0)
         # std = cov_matrices.std(dim=0)
         # cov_matrices = (cov_matrices - mean) / std
+        for cov in cov_matrices:
+            if(not self.is_spd(cov)):
+                raise('not sym cov')
 
         return cov_matrices
 
     def logm(self, spd_matrices):
-        if not self.is_spd(spd_matrices):
-            print('FUCK')
+        # if not self.is_spd(spd_matrices):
+        #     print('FUCK')
+        #     raise('stop')
         # return spd_matrices
 
         # u, s, v = torch.linalg.svd(spd_matrices)
         # log_cov=torch.matmul(torch.matmul(u, torch.diag_embed(torch.log(s + 1.0))), v)
         # return log_cov
         eigvals, eigvecs = torch.linalg.eigh(spd_matrices)
-        log_eigvals = torch.diag(torch.log(eigvals))
+        log_eigvals = torch.diag(torch.log(eigvals + 1.0))
         X_log = eigvecs @ log_eigvals @ eigvecs.transpose(-2, -1)
         return X_log
 
@@ -169,6 +178,8 @@ class DualModel_PL(pl.LightningModule):
         """
         # 检查矩阵是否对称
         if not torch.allclose(matrix, matrix.t(), atol=tol):
+            print(matrix)
+            raise('Not Sym')
             return False
         
         # 计算特征值
@@ -176,6 +187,8 @@ class DualModel_PL(pl.LightningModule):
         
         # 检查所有特征值是否为正
         if torch.any(eigvals <= 0):
+            print(matrix)
+            raise('Eigen not pos')
             return False
         
         return True
@@ -221,6 +234,7 @@ class DualModel_PL(pl.LightningModule):
                 distance = distance ** 2
             else:
                 distance = torch.linalg.norm(matrix_a - matrix_b, 'fro')
+                distance = distance ** 2
         return distance
 
     def top1_accuracy(self, dis_mat, labels):
@@ -247,7 +261,13 @@ class DualModel_PL(pl.LightningModule):
         return nn.Parameter(class_mean_cov)
 
     def init_proto_rand(self, dim, n_class):
-        return nn.Parameter(torch.randn((n_class, dim, dim)))
+        T_init = 64
+        prototype_init = torch.zeros((n_class, dim, dim))
+        for i in range(n_class):
+            prototype_init[i] = self.cov_mat(torch.rand(1, T_init, dim))
+            if(not self.is_spd(prototype_init[i])):
+                raise('not sym init')
+        return nn.Parameter(prototype_init)
 
     def loss_proto(self, cov, label, protos):
         # print(cov.shape)
@@ -258,17 +278,25 @@ class DualModel_PL(pl.LightningModule):
         dis_mat = torch.zeros((batch_size, protos.shape[0]))
         for i, cov_i in enumerate(cov):
             for j, pro_j in enumerate(protos):
-                # print(is_spd(cov_i), is_spd(pro_j))
+                # print(self.is_spd(cov_i))
+                # print(self.is_spd(pro_j))
                 dis_mat[i][j] = -self.frobenius_distance(cov_i, pro_j)
+                # print(-dis_mat[i][j])
+            dis_mat[i] = dis_mat[i].clone() - torch.mean(dis_mat[i].clone())
+            dis_mat[i] = dis_mat[i].clone() / torch.std(dis_mat[i].clone())
+        
         # print(dis_mat)
         acc = self.top1_accuracy(dis_mat, label)
-        dis_mat = F.log_softmax(dis_mat, dim=-1)
-        NLLLoss = nn.NLLLoss()
-        # print(dis_mat)
-        loss = NLLLoss(dis_mat, label)
+        # dis_mat = F.log_softmax(dis_mat, dim=1)
+        CEloss = nn.CrossEntropyLoss()
+        # NLLLoss = nn.NLLLoss()
+        # loss = NLLLoss(dis_mat, label)
+        loss_ce = CEloss(dis_mat, label)
+        # print(loss)
+        # print(loss_ce)
         # print(loss)
 
-        return loss, acc
+        return loss_ce, acc
 
     def extract_leading_eig_vector(self, data_dim, data, device='gpu'):
         geom_backend = torch if device == 'gpu' else np
@@ -331,12 +359,12 @@ class DualModel_PL(pl.LightningModule):
         print(f'train/loss_class_1={loss_class_1},train/loss_class_2={loss_class_2},train/acc_1={acc_1},train/acc_2={acc_2}')
         
         # Check grad 
-        # for name, param in self.named_parameters():
-        #     if param.grad is not None:
-        #         # if 'encoder' not in name:
-        #             grad_norm = param.grad.data.norm(2).item()
-        #             print(f'grad_norm_{name}', grad_norm)
-        # print('\n')
+        for name, param in self.named_parameters():
+            if param.grad is not None:
+                if 'encoder' not in name:
+                    grad_norm = param.grad.data.norm(2).item()
+                    print(f'grad_norm_{name}', grad_norm)
+        print('\n')
         
         # print('loss_class_1/train,',loss_class_1, 
         #             '\nloss_class_2/train ',loss_class_2)

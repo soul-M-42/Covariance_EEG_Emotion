@@ -44,7 +44,7 @@ def run_pipeline(cfg: DictConfig):
     # 3. define non-linear covariance alignment module
 
     # 4. define loss
-        model = DualModel_PL(cfg)
+        model = DualModel_PL(cfg, dm=dm)
 
         total_params = sum(p.numel() for p in model.parameters())
         total_size = sum(p.numel() * p.element_size() for p in model.parameters())

@@ -61,6 +61,7 @@ class MLLA_EEG_Block(nn.Module):
         self.cpe2 = nn.Conv1d(dim, dim, 3, padding=1, groups=dim)
         self.norm1 = nn.LayerNorm(dim)
         self.norm2 = nn.LayerNorm(dim)
+        self.norm_out = nn.LayerNorm(dim)
         self.in_proj = nn.Linear(dim, dim)
         self.out_proj = nn.Linear(dim, dim)
         self.act_proj = nn.Linear(dim, dim)
@@ -87,6 +88,7 @@ class MLLA_EEG_Block(nn.Module):
 
         # FFN
         x = x + self.mlp(self.norm2(x))
+        x = self.norm_out(x)
         return x
 
 class MLLA_BasicLayer(nn.Module):
