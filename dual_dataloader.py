@@ -26,6 +26,7 @@ class PairedDataset(Dataset):
         self.dataset_b = dataset_b
         self.len_a = len(self.dataset_a)
         self.len_b = len(self.dataset_b)
+        print(len(self.dataset_a), len(self.dataset_b))
 
     def __len__(self):
         return max(len(self.dataset_a), len(self.dataset_b))

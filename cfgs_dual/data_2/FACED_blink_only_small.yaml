@@ -3,7 +3,7 @@ data_dir: '/mnt/data/FACED/Faced_blink_only'
 fs: 125
 n_channs: 30
 n_session: 1  
-n_subs: 4
+n_subs: 60
 n_vids: 28
 
 # changeable

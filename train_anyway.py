@@ -60,7 +60,8 @@ def run_pipeline(cfg: DictConfig):
         trainer = pl.Trainer(
             logger=logger,
             max_epochs=cfg.train.max_epochs, min_epochs=cfg.train.min_epochs, 
-            accelerator='gpu', devices=cfg.train.gpus, limit_val_batches=limit_val_batches
+            accelerator='gpu', devices=cfg.train.gpus, limit_val_batches=limit_val_batches,
+            accumulate_grad_batches=cfg.train.grad_accumulation
             )
         trainer.fit(model, dm)
 

@@ -1,10 +1,13 @@
 
 defaults:
   - _self_
+  # - data_1: FACED_blink_only_small
+  # - data_1: SEEDV
   - data_1: SEEDV_small
+  # - data_2: FACED_blink_only
   - data_2: FACED_blink_only_small
   # WARNING: REMEMBER TO CHANGE train.n_fold WHEN CHANGE DATASET/DATASET_SMALL
-  # SMALL: fold=2
+  # SMALL: fold=3
   # NORMAL: fold=16
   - model: cnn_att
 
@@ -12,24 +15,28 @@ seed: 7
 
 channel_encoder:
   patch_size: 30
-  hidden_dim: 30
-  out_dim: 30
+  hidden_dim: 32
+  out_dim: 16
   depth: 2
   patch_stride: 5
+  drop_path: 0.1
+  n_filter: 16
+  filterLen: 10
 
 align:
   device: gpu
-  factor: 0.514
-  n_channel_uni: 32
+  factor: 0.05
+  n_channel_uni: 60
   to_riem: False
   align_loss: False
 
 log:
-  is_logger: True
+  is_logger: False
   logpath: 'log_small'
   # logpath: 'log'
+  # logpath: 'log'
   run: 4
-  proj_name: 'SingleNM_timeLen=${data_1.timeLen}_CDA=${align.align_loss}_Riem=${align.to_riem}_patchSize=${channel_encoder.patch_size}_patchStride=${channel_encoder.patch_stride}_hidden_dim=${channel_encoder.hidden_dim}_out_dim=${channel_encoder.out_dim}_depth=${channel_encoder.depth}_channelUni=${align.n_channel_uni}_wd=${train.wd}_alignFactor=${align.factor}'
+  proj_name: 'CONVOUT_timeLen=${data_1.timeLen}_CDA=${align.align_loss}_Riem=${align.to_riem}_patchSize=${channel_encoder.patch_size}_patchStride=${channel_encoder.patch_stride}_hidden_dim=${channel_encoder.hidden_dim}_out_dim=${channel_encoder.out_dim}_depth=${channel_encoder.depth}_channelUni=${align.n_channel_uni}_wd=${train.wd}_alignFactor=${align.factor}'
   # CDA for Cross Dataset Align
 
   exp_name: ''
@@ -38,7 +45,7 @@ log:
   cp_dir: '/mnt/data/model_weights/DUAL_cp'   
 
 train:
-  n_fold: 2
+  n_fold: 3
   gpus: [0]
   iftest: False
   # n_subs: ${data.n_subs}
@@ -50,8 +57,9 @@ train:
   patience: 30
   restart_times: ${train.max_epochs}  # scheduler
   val_sub_p: 0.8
-  batch_size: 64
-  num_workers: 1
+  batch_size: 128
+  grad_accumulation: 1
+  num_workers: 16
 
 
 mlp:

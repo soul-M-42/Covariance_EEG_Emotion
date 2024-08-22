@@ -3,7 +3,7 @@ data_dir: '/mnt/data/SEEDV'
 fs: 125
 n_channs: 60
 n_session: 3
-n_subs: 4
+n_subs: 6
 n_vids: 15
 n_class: 5
 

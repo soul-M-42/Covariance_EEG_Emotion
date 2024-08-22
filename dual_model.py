@@ -10,6 +10,12 @@ from MLLA_test import MLLA_BasicLayer
 torch.set_default_tensor_type('torch.cuda.FloatTensor')
 import matplotlib.pyplot as plt
 
+def logm(spd_matrices):
+    eigvals, eigvecs = torch.linalg.eigh(spd_matrices)
+    log_eigvals = torch.diag(torch.log(eigvals + 1.0))
+    X_log = eigvecs @ log_eigvals @ eigvecs.transpose(-2, -1)
+    return X_log
+
 class channelwiseEncoder(nn.Module):
     def __init__(self, standard_channels, n_filter):
         super().__init__()
@@ -33,6 +39,45 @@ class channelwiseEncoder(nn.Module):
         # [batch, channel*n_filter, time]
         return outputs
 
+class BiMap(nn.Module):
+    def __init__(self, in_shape, out_shape):
+        super().__init__()
+        self.W = nn.Parameter(torch.randn(in_shape, out_shape))
+        # self.norm = nn.LayerNorm([out_shape, out_shape], elementwise_affine=False)
+    def forward(self, x):
+        out = self.W @ x @ self.W.transpose(-2, -1)
+        out = (out - torch.mean(out, dim=0)) / torch.std(out, dim=0)
+        # out = self.norm(out)
+        return out
+    
+class ReEig(nn.Module):
+    def __init__(self, eta):
+        super().__init__()
+        self.thresh = nn.Threshold(eta, eta)
+    def forward(self, x):
+        out = torch.zeros_like(x)
+        for i, x_i in enumerate(x):
+            eigvals, eigvecs = torch.linalg.eigh(x_i)
+            eigvals = torch.diag(self.thresh(eigvals))
+            out[i] = eigvecs @ eigvals @ eigvecs.transpose(-2, -1)
+        return out
+    
+class ConvOut(nn.Module):
+    # Input: a batch of SPD Covariance matrix [B, N, N]
+    def __init__(self, in_shape):
+        super().__init__()
+        self.ReEig = ReEig(eta=0.005)
+        self.bimap_1 = BiMap(in_shape=in_shape, out_shape=in_shape)
+        self.bimap_2 = BiMap(in_shape=in_shape, out_shape=in_shape)
+
+    def forward(self, x):
+        x = self.bimap_1(x)
+        x = self.ReEig(x)
+        # x = self.bimap_2(x)
+        # x = self.ReEig(x)
+        out = x
+        return out
+
 def to_patch(data, patch_size=50, stride=25):
     batchsize, timelen, dim = data.shape
     num_patches = (timelen - patch_size) // stride + 1
@@ -44,7 +89,7 @@ def to_patch(data, patch_size=50, stride=25):
     return patches
 
 class channel_MLLA(nn.Module):
-    def __init__(self, standard_channels, patch_size, hidden_dim, out_dim, depth, patch_stride):
+    def __init__(self, standard_channels, patch_size, hidden_dim, out_dim, depth, patch_stride, drop_path, n_filter, filterLen):
         super().__init__()
         self.standard_channels = standard_channels
         self.n_channels = len(standard_channels)
@@ -57,7 +102,7 @@ class channel_MLLA(nn.Module):
         #                             for _ in range(self.n_channels)])
         self.encoder = MLLA_BasicLayer(
                                     in_dim=patch_size, hidden_dim=hidden_dim, out_dim=out_dim,
-                                    depth=depth, num_heads=8) 
+                                    depth=depth, num_heads=8, drop_path=drop_path, n_filter=n_filter, filterLen=filterLen)
 
     def forward(self, x, x_channel_names):
         n_channels_data = len(x_channel_names)
@@ -111,10 +156,14 @@ class DualModel_PL(pl.LightningModule):
             hidden_dim=cfg.channel_encoder.hidden_dim,
             out_dim=cfg.channel_encoder.out_dim,
             depth=cfg.channel_encoder.depth,
-            patch_stride=cfg.channel_encoder.patch_stride)
+            patch_stride=cfg.channel_encoder.patch_stride,
+            drop_path=cfg.channel_encoder.drop_path,
+            n_filter=cfg.channel_encoder.n_filter,
+            filterLen=cfg.channel_encoder.filterLen)
         # self.channelwiseEncoder = channelwiseEncoder(n_filter=cfg.channel_encoder.out_dim, standard_channels=cfg.data_1.channels)
         self.alignmentModule_1 = Channel_Alignment(cfg.data_1.n_channs*cfg.channel_encoder.out_dim, cfg.align.n_channel_uni)
         self.alignmentModule_2 = Channel_Alignment(cfg.data_2.n_channs*cfg.channel_encoder.out_dim, cfg.align.n_channel_uni)
+        self.decoder = ConvOut(in_shape=cfg.align.n_channel_uni)
         self.protos_1 = None
         self.protos_2 = None
         self.protos_1 = self.init_proto_rand(dim=cfg.align.n_channel_uni, n_class=cfg.data_1.n_class)
@@ -149,25 +198,12 @@ class DualModel_PL(pl.LightningModule):
         # mean = cov_matrices.mean(dim=0)
         # std = cov_matrices.std(dim=0)
         # cov_matrices = (cov_matrices - mean) / std
-        for cov in cov_matrices:
-            if(not self.is_spd(cov)):
-                raise('not sym cov')
+        # for cov in cov_matrices:
+        #     if(not self.is_spd(cov)):
+        #         raise('not sym cov')
 
         return cov_matrices
 
-    def logm(self, spd_matrices):
-        # if not self.is_spd(spd_matrices):
-        #     print('FUCK')
-        #     raise('stop')
-        # return spd_matrices
-
-        # u, s, v = torch.linalg.svd(spd_matrices)
-        # log_cov=torch.matmul(torch.matmul(u, torch.diag_embed(torch.log(s + 1.0))), v)
-        # return log_cov
-        eigvals, eigvecs = torch.linalg.eigh(spd_matrices)
-        log_eigvals = torch.diag(torch.log(eigvals + 1.0))
-        X_log = eigvecs @ log_eigvals @ eigvecs.transpose(-2, -1)
-        return X_log
 
     def is_spd(self, matrix, tol=1e-6):
         """
@@ -230,7 +266,7 @@ class DualModel_PL(pl.LightningModule):
             raise ValueError("Must have same shape")
         if type(matrix_a) == torch.Tensor:
             if self.cfg.align.to_riem:
-                distance = torch.linalg.norm(self.logm(matrix_a) - self.logm(matrix_b), 'fro')
+                distance = torch.linalg.norm(logm(matrix_a) - logm(matrix_b), 'fro')
                 distance = distance ** 2
             else:
                 distance = torch.linalg.norm(matrix_a - matrix_b, 'fro')
@@ -343,6 +379,8 @@ class DualModel_PL(pl.LightningModule):
         fea_2 = self.alignmentModule_2(fea_2)
         cov_1 = self.cov_mat(fea_1)
         cov_2 = self.cov_mat(fea_2)
+        # cov_1 = self.decoder(cov_1)
+        # cov_2 = self.decoder(cov_2)
         # if self.cfg.align.to_riem:
         #     cov_1, tts_1 = self.cov_to_riem(cov_1, self.tts_1, 'train', device=self.cfg.align.device)
         #     cov_2, tts_2 = self.cov_to_riem(cov_2, self.tts_2, 'train', device=self.cfg.align.device)
@@ -364,6 +402,8 @@ class DualModel_PL(pl.LightningModule):
                 if 'encoder' not in name:
                     grad_norm = param.grad.data.norm(2).item()
                     print(f'grad_norm_{name}', grad_norm)
+                # grad_norm = param.grad.data.norm(2).item()
+                # print(f'grad_norm_{name}', grad_norm)
         print('\n')
         
         # print('loss_class_1/train,',loss_class_1, 
@@ -385,6 +425,7 @@ class DualModel_PL(pl.LightningModule):
         loss = loss_class_1 + loss_class_2
         if self.cfg.align.align_loss:
             loss_Align = self.align_factor * self.CDA_loss(cov_1, cov_2)
+            print(f'loss_Align={loss_Align}')
             loss = loss + loss_Align
             self.log_dict({
                     'loss_align/train': loss_Align, 
@@ -431,6 +472,7 @@ class DualModel_PL(pl.LightningModule):
         loss = loss_class_1 + loss_class_2
         if self.cfg.align.align_loss:
             loss_Align = self.align_factor * self.CDA_loss(cov_1, cov_2)
+            print(f'loss_Align={loss_Align}')
             loss = loss + loss_Align
             self.log_dict({
                     'loss_align/val': loss_Align, 
