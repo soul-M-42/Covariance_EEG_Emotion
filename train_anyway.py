@@ -7,7 +7,7 @@ import pytorch_lightning as pl
 # from pytorch_lightning.loggers import WandbLogger
 # import wandb
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
-from dual_dataloader import MultiEEGDataModule
+from dual_dataloader import DualDataModule
 from dual_model import DualModel_PL
 from data.pl_datamodule import EEGDataModule
 import os
@@ -34,7 +34,9 @@ def run_pipeline(cfg: DictConfig):
             if(cfg.log.is_logger):
                 os.makedirs(save_dir)
                 logger = TensorBoardLogger(save_dir=save_dir, name=run_name)
-        dm = MultiEEGDataModule(cfg.data_1, cfg.data_2, fold, n_folds, batch_size=cfg.train.batch_size, num_workers=cfg.train.num_workers,
+        # dm = MultiEEGDataModule(cfg.data_1, cfg.data_2, fold, n_folds, batch_size=cfg.train.batch_size, num_workers=cfg.train.num_workers,
+        #                         device=cfg.align.device)
+        dm = DualDataModule(cfg.data_1, cfg.data_2, fold, n_folds, batch_size=cfg.train.batch_size, num_workers=cfg.train.num_workers,
                                 device=cfg.align.device)
         dm.setup("fit")
 

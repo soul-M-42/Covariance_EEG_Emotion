@@ -1,11 +1,12 @@
 
 defaults:
   - _self_
-  # - data_1: FACED_blink_only_small
-  # - data_1: SEEDV
-  - data_1: SEEDV_small
-  # - data_2: FACED_blink_only
-  - data_2: FACED_blink_only_small
+  # - data_1: SEEDV_small
+  - data_1: SEEDV
+  # - data_1: SEEDV_small
+  - data_2: FACED_blink_only
+  # - data_2: FACED_blink_only_small
+  # - data_2: SEEDV_small
   # WARNING: REMEMBER TO CHANGE train.n_fold WHEN CHANGE DATASET/DATASET_SMALL
   # SMALL: fold=3
   # NORMAL: fold=16
@@ -29,14 +30,15 @@ align:
   n_channel_uni: 60
   to_riem: False
   align_loss: False
+  clisa_loss: True
 
 log:
-  is_logger: False
-  logpath: 'log_small'
+  is_logger: True
+  logpath: 'log'
   # logpath: 'log'
   # logpath: 'log'
   run: 4
-  proj_name: 'CONVOUT_timeLen=${data_1.timeLen}_CDA=${align.align_loss}_Riem=${align.to_riem}_patchSize=${channel_encoder.patch_size}_patchStride=${channel_encoder.patch_stride}_hidden_dim=${channel_encoder.hidden_dim}_out_dim=${channel_encoder.out_dim}_depth=${channel_encoder.depth}_channelUni=${align.n_channel_uni}_wd=${train.wd}_alignFactor=${align.factor}'
+  proj_name: 'Clisa_E_timeLen=${data_1.timeLen}_CDA=${align.align_loss}_Riem=${align.to_riem}_patchSize=${channel_encoder.patch_size}_patchStride=${channel_encoder.patch_stride}_hidden_dim=${channel_encoder.hidden_dim}_out_dim=${channel_encoder.out_dim}_depth=${channel_encoder.depth}_channelUni=${align.n_channel_uni}_wd=${train.wd}_alignFactor=${align.factor}'
   # CDA for Cross Dataset Align
 
   exp_name: ''
@@ -45,7 +47,7 @@ log:
   cp_dir: '/mnt/data/model_weights/DUAL_cp'   
 
 train:
-  n_fold: 3
+  n_fold: 7
   gpus: [0]
   iftest: False
   # n_subs: ${data.n_subs}
@@ -59,7 +61,7 @@ train:
   val_sub_p: 0.8
   batch_size: 128
   grad_accumulation: 1
-  num_workers: 16
+  num_workers: 0
 
 
 mlp:

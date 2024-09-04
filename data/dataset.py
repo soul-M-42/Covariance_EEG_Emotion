@@ -124,6 +124,8 @@ class EEG_Dataset(Dataset):
     def __init__(self, cfg, train_subs=None, val_subs=None, sliced=True, mods=None):
         self.load_dir = os.path.join(cfg.data_dir,'processed_data')
         self.save_dir = os.path.join(cfg.data_dir,'sliced_data')
+        self.cfg = cfg
+        self.n_session = cfg.n_session
 
         self.train_subs = train_subs
         self.val_subs = val_subs

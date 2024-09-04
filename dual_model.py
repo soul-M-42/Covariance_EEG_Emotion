@@ -9,6 +9,8 @@ from MLLA_test import MLLA_BasicLayer
 # os.environ["GEOMSTATS_BACKEND"] = 'pytorch' 
 torch.set_default_tensor_type('torch.cuda.FloatTensor')
 import matplotlib.pyplot as plt
+import itertools
+import time
 
 def logm(spd_matrices):
     eigvals, eigvecs = torch.linalg.eigh(spd_matrices)
@@ -77,6 +79,102 @@ class ConvOut(nn.Module):
         # x = self.ReEig(x)
         out = x
         return out
+
+class ConvOut_Euclidean(nn.Module):
+    def __init__(self, out_channels=64, n_kernel=1):
+        """
+        SPD Convolution Layer with a pyramidal form.
+
+        Args:
+            out_channels (int): Number of output channels after each convolution layer.
+            n_kernel (int): Number of convolution kernels (default is 1).
+        """
+        super(ConvOut_Euclidean, self).__init__()
+        self.n_kernel = n_kernel
+        self.out_channels = out_channels
+
+        # First convolutional layer
+        self.conv1 = nn.Conv2d(
+            in_channels=1,
+            out_channels=out_channels,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            bias=False
+        )
+        self.norm1 = nn.BatchNorm2d(out_channels)
+        self.activation1 = nn.ReLU()
+
+        # Second convolutional layer with downsampling
+        self.conv2 = nn.Conv2d(
+            in_channels=out_channels,
+            out_channels=out_channels * 2,
+            kernel_size=3,
+            stride=2,  # Downsampling by reducing the spatial size
+            padding=1,
+            bias=False
+        )
+        self.norm2 = nn.BatchNorm2d(out_channels * 2)
+        self.activation2 = nn.ReLU()
+
+        # Third convolutional layer with further downsampling
+        self.conv3 = nn.Conv2d(
+            in_channels=out_channels * 2,
+            out_channels=out_channels * 4,
+            kernel_size=3,
+            stride=2,  # Further downsampling
+            padding=1,
+            bias=False
+        )
+        self.norm3 = nn.BatchNorm2d(out_channels * 4)
+        self.activation3 = nn.ReLU()
+
+        # Linear layer to merge channels into a single channel via a linear combination
+        self.merge = nn.Linear(out_channels * 4, 1, bias=False)
+
+    def forward(self, x):
+        """
+        Forward pass of SPD Convolution
+
+        Args:
+            x (torch.Tensor): Input tensor of shape [B, N, N], where:
+                              B - Batch size
+                              N - SPD matrix dimension
+
+        Returns:
+            torch.Tensor: Output tensor of shape [B, final_N, final_N] after merging channels.
+        """
+        B, N, _ = x.shape
+
+        # Unsqueeze to add channel dimension: [B, 1, N, N]
+        x = x.unsqueeze(1)
+
+        # First convolution layer
+        x = self.conv1(x)
+        x = self.norm1(x)
+        x = self.activation1(x)
+
+        # Second convolution layer with downsampling
+        x = self.conv2(x)
+        x = self.norm2(x)
+        x = self.activation2(x)
+
+        # Third convolution layer with further downsampling
+        x = self.conv3(x)
+        x = self.norm3(x)
+        x = self.activation3(x)
+
+        # Permute to [B, final_N, final_N, out_channels * 4] to apply linear combination along channel dimension
+        x = x.permute(0, 2, 3, 1)
+
+        # Apply the linear layer to merge channels back to a single output [B, final_N, final_N, 1]
+        x = self.merge(x)
+
+        # Squeeze the last dimension to get the shape [B, final_N, final_N]
+        x = x.squeeze(-1)
+
+        return x
+    
 
 def to_patch(data, patch_size=50, stride=25):
     batchsize, timelen, dim = data.shape
@@ -164,10 +262,11 @@ class DualModel_PL(pl.LightningModule):
         self.alignmentModule_1 = Channel_Alignment(cfg.data_1.n_channs*cfg.channel_encoder.out_dim, cfg.align.n_channel_uni)
         self.alignmentModule_2 = Channel_Alignment(cfg.data_2.n_channs*cfg.channel_encoder.out_dim, cfg.align.n_channel_uni)
         self.decoder = ConvOut(in_shape=cfg.align.n_channel_uni)
+        self.decoder = ConvOut_Euclidean(out_channels=64)
         self.protos_1 = None
         self.protos_2 = None
-        self.protos_1 = self.init_proto_rand(dim=cfg.align.n_channel_uni, n_class=cfg.data_1.n_class)
-        self.protos_2 = self.init_proto_rand(dim=cfg.align.n_channel_uni, n_class=cfg.data_2.n_class)
+        # self.protos_1 = self.init_proto_rand(dim=cfg.align.n_channel_uni, n_class=cfg.data_1.n_class)
+        # self.protos_2 = self.init_proto_rand(dim=cfg.align.n_channel_uni, n_class=cfg.data_2.n_class)
         self.lr = cfg.train.lr
         self.wd = cfg.train.wd
         self.max_epochs = cfg.train.max_epochs
@@ -252,11 +351,19 @@ class DualModel_PL(pl.LightningModule):
 
     # CDA for Cross_dataset Alignment
     def CDA_loss(self, cov_1, cov_2):
-        centroid_1 = self.frechet_mean(cov_1)
-        centroid_2 = self.frechet_mean(cov_2)
-        # print(is_spd(centroid_1), is_spd(centroid_2))
-        # print(is_spd(centroid_1), is_spd(centroid_2))
-        dis = self.frobenius_distance(centroid_1, centroid_2)
+        dis = 0
+        cov_1 = cov_1.reshape(2, -1, self.cfg.align.n_channel_uni, self.cfg.align.n_channel_uni)
+        cov_2 = cov_2.reshape(2, -1, self.cfg.align.n_channel_uni, self.cfg.align.n_channel_uni)
+        ind_cen = []
+        ind_cen.append(self.get_ind_cen(cov_1[0]))
+        ind_cen.append(self.get_ind_cen(cov_1[1]))
+        ind_cen.append(self.get_ind_cen(cov_2[0]))
+        ind_cen.append(self.get_ind_cen(cov_2[1]))
+        for i in range(len(ind_cen)):
+            for j in range(i+1, len(ind_cen)):
+                cen_i = ind_cen[i]
+                cen_j = ind_cen[j]
+                dis = dis + self.frobenius_distance(cen_i, cen_j)
         loss = torch.log(dis + 1.0)
         return loss
 
@@ -304,6 +411,39 @@ class DualModel_PL(pl.LightningModule):
             if(not self.is_spd(prototype_init[i])):
                 raise('not sym init')
         return nn.Parameter(prototype_init)
+
+    def loss_pair(self, cov, emo_label):
+        n_vid = cov.shape[0] // 2
+        similarity_matrix = torch.zeros((cov.shape[0], cov.shape[0]))
+        labels = torch.cat([torch.arange(n_vid) for i in range(2)], dim=0)
+        labels = (labels.unsqueeze(0) == labels.unsqueeze(1)).float()
+        for i in range(cov.shape[0]):
+            for j in range(cov.shape[0]):
+                cov_i = cov[i]
+                cov_j = cov[j]
+                similarity_matrix[i][j] = -self.frobenius_distance(cov_i, cov_j)
+            similarity_matrix[i] = similarity_matrix[i].clone() - torch.mean(similarity_matrix[i].clone())
+            similarity_matrix[i] = similarity_matrix[i].clone() / torch.std(similarity_matrix[i].clone())
+        
+
+
+        mask = torch.eye(labels.shape[0], dtype=torch.bool)
+        labels = labels[~mask].view(labels.shape[0], -1)
+        similarity_matrix = similarity_matrix[~mask].view(similarity_matrix.shape[0], -1)
+
+        # similarity_matrix = similarity_matrix.clone() - torch.mean(similarity_matrix.clone())
+        # similarity_matrix = similarity_matrix.clone() / torch.std(similarity_matrix.clone())
+        plt.imsave('fro_dis.png', similarity_matrix.detach().cpu())
+        plt.imsave('labels.png', labels.detach().cpu())
+
+        positives = similarity_matrix[labels.bool()].view(labels.shape[0], -1)
+        negatives = similarity_matrix[~labels.bool()].view(similarity_matrix.shape[0], -1)
+        logits = torch.cat([negatives, positives], dim=1)
+        labels = torch.ones(logits.shape[0], dtype=torch.long)*(logits.shape[1]-1)
+        CEloss = nn.CrossEntropyLoss()
+        pair_loss = CEloss(logits, labels)
+        print(f'Contrasive_loss:{pair_loss}')
+        return pair_loss
 
     def loss_proto(self, cov, label, protos):
         # print(cov.shape)
@@ -357,6 +497,10 @@ class DualModel_PL(pl.LightningModule):
             # reshape_matrix_data
         return matrix_data   
 
+    def get_ind_cen(self, mat):
+        mat = torch.squeeze(mat)
+        mat = self.frechet_mean(mat)
+        return mat
     
     def forward(self, batch, channel_names):
         feature = self.channelwiseEncoder(batch, channel_names)
@@ -369,9 +513,11 @@ class DualModel_PL(pl.LightningModule):
     
     # remain to be implemented
     def training_step(self, batch, batch_idx):
-        data_1, data_2 = batch
-        x_1, y_1 = data_1
-        x_2, y_2 = data_2
+        x_1, y_1, x_2, y_2 = batch
+        x_1 = x_1[0]
+        x_2 = x_2[0]
+        y_1 = y_1[0]
+        y_2 = y_2[0]
         fea_1 = self.forward(x_1, self.cfg.data_1.channels)
         fea_2 = self.forward(x_2, self.cfg.data_2.channels)
         
@@ -389,28 +535,43 @@ class DualModel_PL(pl.LightningModule):
 
         # print(cov_1.shape, cov_2.shape)
         # print(y_1, y_2)
+        loss_1 = 0
+        loss_2 = 0
         if self.protos_1 is None:
-            self.protos_1 = self.init_proto(cov_1, y_1, self.cfg.data_1.n_class)
-            self.protos_2 = self.init_proto(cov_2, y_2, self.cfg.data_2.n_class)
+            self.protos_1 = self.init_proto_rand(dim=cov_1.shape[1], n_class=self.cfg.data_1.n_class)
+            self.protos_2 = self.init_proto_rand(dim=cov_2.shape[1], n_class=self.cfg.data_2.n_class)
         loss_class_1, acc_1 = self.loss_proto(cov_1, y_1, self.protos_1)
         loss_class_2, acc_2 = self.loss_proto(cov_2, y_2, self.protos_2)
+
+        loss_pair_1 = self.loss_pair(cov_1, y_1)
+        loss_pair_2 = self.loss_pair(cov_2, y_2)
+
+        loss_1 = loss_1 + loss_class_1
+        loss_2 = loss_2 + loss_class_2
+
+        if self.cfg.align.clisa_loss:
+            loss_1 = loss_1 + loss_pair_1
+            loss_2 = loss_2 + loss_pair_2
+
         print(f'train/loss_class_1={loss_class_1},train/loss_class_2={loss_class_2},train/acc_1={acc_1},train/acc_2={acc_2}')
         
         # Check grad 
-        for name, param in self.named_parameters():
-            if param.grad is not None:
-                if 'encoder' not in name:
-                    grad_norm = param.grad.data.norm(2).item()
-                    print(f'grad_norm_{name}', grad_norm)
-                # grad_norm = param.grad.data.norm(2).item()
-                # print(f'grad_norm_{name}', grad_norm)
-        print('\n')
+        # for name, param in self.named_parameters():
+        #     if param.grad is not None:
+        #         if 'encoder' not in name:
+        #             grad_norm = param.grad.data.norm(2).item()
+        #             print(f'grad_norm_{name}', grad_norm)
+        #         # grad_norm = param.grad.data.norm(2).item()
+        #         # print(f'grad_norm_{name}', grad_norm)
+        # print('\n')
         
         # print('loss_class_1/train,',loss_class_1, 
         #             '\nloss_class_2/train ',loss_class_2)
         self.log_dict({
                     'loss_class_1/train': loss_class_1, 
                     'loss_class_2/train': loss_class_2, 
+                    'loss_pair_1/train': loss_pair_1, 
+                    'loss_pair_2/train': loss_pair_2, 
                     'acc_1/train': acc_1, 
                     'acc_2/train': acc_2, 
                     'lr': self.optimizers().param_groups[-1]['lr']
@@ -422,7 +583,7 @@ class DualModel_PL(pl.LightningModule):
         # for name, param in self.channelwiseEncoder.named_parameters():
         #     if param.requires_grad:
         #         print(f"Gradient of {name}: {param.grad}")
-        loss = loss_class_1 + loss_class_2
+        loss = loss_1 + loss_2
         if self.cfg.align.align_loss:
             loss_Align = self.align_factor * self.CDA_loss(cov_1, cov_2)
             print(f'loss_Align={loss_Align}')
@@ -436,15 +597,22 @@ class DualModel_PL(pl.LightningModule):
         return loss
     
     def validation_step(self, batch, batch_idx):
-        data_1, data_2 = batch
-        x_1, y_1 = data_1
-        x_2, y_2 = data_2
+        x_1, y_1, x_2, y_2 = batch
+        x_1 = x_1[0]
+        x_2 = x_2[0]
+        y_1 = y_1[0]
+        y_2 = y_2[0]
+        # print(x_1.shape, x_2.shape, y_1.shape, y_2.shape)
         fea_1 = self.forward(x_1, self.cfg.data_1.channels)
         fea_2 = self.forward(x_2, self.cfg.data_2.channels)
         fea_1 = self.alignmentModule_1(fea_1)
         fea_2 = self.alignmentModule_2(fea_2)
         cov_1 = self.cov_mat(fea_1)
         cov_2 = self.cov_mat(fea_2)
+        # cov_1 = self.decoder(cov_1)
+        # cov_2 = self.decoder(cov_2)
+        loss_1 = 0
+        loss_2 = 0
         
         # if self.cfg.align.to_riem:
         #     if self.tts_1 is not None:
@@ -454,13 +622,29 @@ class DualModel_PL(pl.LightningModule):
         # print(loss_Align)
         # print(y_1, y_2)
         if self.protos_1 is None:
-            return None
+            self.protos_1 = self.init_proto_rand(dim=cov_1.shape[1], n_class=self.cfg.data_1.n_class)
+            self.protos_2 = self.init_proto_rand(dim=cov_2.shape[1], n_class=self.cfg.data_2.n_class)
+
         loss_class_1, acc_1 = self.loss_proto(cov_1, y_1, self.protos_1)
         loss_class_2, acc_2 = self.loss_proto(cov_2, y_2, self.protos_2)
+
+        loss_pair_1 = self.loss_pair(cov_1, y_1)
+        loss_pair_2 = self.loss_pair(cov_2, y_2)
+
+        loss_1 = loss_1 + loss_class_1
+        loss_2 = loss_2 + loss_class_2
+        
+        
+        if self.cfg.align.clisa_loss:
+            loss_1 = loss_1 + loss_pair_1
+            loss_2 = loss_2 + loss_pair_2
+
         # print(f'test/loss_class_1={loss_class_1},test/loss_class_2={loss_class_2},test/acc_1={acc_1},test/acc_2={acc_2}')
         self.log_dict({
                     'loss_class_1/val': loss_class_1, 
                     'loss_class_2/val': loss_class_2, 
+                    'loss_pair_1/val': loss_pair_1, 
+                    'loss_pair_2/val': loss_pair_2, 
                     'acc_1/val': acc_1, 
                     'acc_2/val': acc_2, 
                     'lr/val': self.optimizers().param_groups[-1]['lr']
@@ -469,7 +653,7 @@ class DualModel_PL(pl.LightningModule):
                     on_step=False, on_epoch=True, prog_bar=True)
         # fea.shape = [channel, n_filter, time']
         # self.criterion.to(data.device)   # put it in the loss function
-        loss = loss_class_1 + loss_class_2
+        loss = loss_1 + loss_2
         if self.cfg.align.align_loss:
             loss_Align = self.align_factor * self.CDA_loss(cov_1, cov_2)
             print(f'loss_Align={loss_Align}')
