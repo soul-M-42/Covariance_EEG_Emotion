@@ -12,8 +12,8 @@ from itertools import cycle
 
 
 class EEGSampler:
-    def __init__(self, set1, set2, n_pair=256):
-        self.n_pair = n_pair
+    def __init__(self, set1, set2, n_pairs=256):
+        self.n_pairs = n_pairs
         self.set1 = set1
         self.set2 = set2
         self.subs1 = self.set1.train_subs if self.set1.train_subs is not None else self.set1.val_subs
@@ -53,7 +53,7 @@ class EEGSampler:
         return ind_this
 
     def __len__(self):
-        return self.n_pair
+        return self.n_pairs
         n_pair_1 = self.n_sub1*self.n_session1
         n_pair_2 = self.n_sub2*self.n_session2
         return n_pair_1 * n_pair_2
@@ -86,7 +86,7 @@ class EEGSampler:
         #         # Yield a tuple containing both indices
         #         yield list(idx_1.astype(int)), list(idx_2.astype(int))
 
-        for i in range(self.n_pair):
+        for i in range(self.n_pairs):
             pair1 = random.choice(pairs_1)
             pair2 = random.choice(pairs_2)
             idx_1 = np.array([])
@@ -230,10 +230,11 @@ class PairedDataset(Dataset):
 #         return ZipLongestRepeat(self.valloader_1, self.valloader_2)
 
 class DualDataModule(pl.LightningDataModule):
-    def __init__(self, data1, data2, fold, n_folds, batch_size=64, num_workers=8, device='cpu'):
+    def __init__(self, data1, data2, fold, n_folds, batch_size=64, n_pairs=128, num_workers=8, device='cpu'):
         super().__init__()
         self.device = device
         self.batch_size = batch_size
+        self.n_pairs = n_pairs
         self.num_workers = num_workers
         self.data1 = data1
         self.data2 = data2
@@ -267,12 +268,12 @@ class DualDataModule(pl.LightningDataModule):
             self.valset = PairedDataset(self.valset_1, self.valset_2)
 
     def train_dataloader(self) -> torch.Any:
-        self.trainsampler = EEGSampler(set1=self.trainset_1, set2=self.trainset_2)
+        self.trainsampler = EEGSampler(set1=self.trainset_1, set2=self.trainset_2, n_pairs=self.n_pairs)
         self.trainloader = DataLoader(self.trainset, sampler=self.trainsampler, pin_memory=True, num_workers=self.num_workers, generator=torch.Generator(device='cuda'))
         return self.trainloader
    
     def val_dataloader(self) -> torch.Any:
-        self.valsampler = EEGSampler(set1=self.valset_1, set2=self.valset_2)
+        self.valsampler = EEGSampler(set1=self.valset_1, set2=self.valset_2, n_pairs=self.n_pairs)
         self.valloader = DataLoader(self.valset, sampler=self.valsampler, pin_memory=True, num_workers=self.num_workers, generator=torch.Generator(device='cuda'))
         return self.valloader
     

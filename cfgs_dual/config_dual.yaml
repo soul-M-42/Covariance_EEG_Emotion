@@ -30,7 +30,7 @@ align:
   n_channel_uni: 60
   to_riem: False
   align_loss: False
-  clisa_loss: True
+  clisa_loss: False
 
 log:
   is_logger: True
@@ -48,6 +48,7 @@ log:
 
 train:
   n_fold: 7
+  n_pairs: 256
   gpus: [0]
   iftest: False
   # n_subs: ${data.n_subs}

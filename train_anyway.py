@@ -37,7 +37,8 @@ def run_pipeline(cfg: DictConfig):
         # dm = MultiEEGDataModule(cfg.data_1, cfg.data_2, fold, n_folds, batch_size=cfg.train.batch_size, num_workers=cfg.train.num_workers,
         #                         device=cfg.align.device)
         dm = DualDataModule(cfg.data_1, cfg.data_2, fold, n_folds, batch_size=cfg.train.batch_size, num_workers=cfg.train.num_workers,
-                                device=cfg.align.device)
+                            n_pairs=cfg.train.n_pairs,
+                            device=cfg.align.device)
         dm.setup("fit")
 
     # 2. define channel_specific encoder
