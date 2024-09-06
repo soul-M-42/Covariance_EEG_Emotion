@@ -203,8 +203,8 @@ class MLLA_BasicLayer(nn.Module):
         self.out_dim = out_dim
         self.hidden_dim = hidden_dim
         self.depth = depth
-        self.conv_in = conv_in(n_filter=n_filter, patch_size=in_dim, filterLen=filterLen)
-        self.read_in = nn.Linear(self.conv_in.out_dim, hidden_dim)
+        # self.conv_in = conv_in(n_filter=n_filter, patch_size=in_dim, filterLen=filterLen)
+        self.read_in = nn.Linear(in_dim, hidden_dim)
         self.read_out = nn.Linear(self.hidden_dim, out_dim)
         # build blocks
         self.blocks = nn.ModuleList([
@@ -216,7 +216,7 @@ class MLLA_BasicLayer(nn.Module):
         #     if param.requires_grad:
         #         print(f"Gradient of {name}: {param.grad}")
         # print(f'Before MLLA: mean={torch.mean(x)}, std={torch.std(x)}')
-        x = self.conv_in(x)
+        # x = self.conv_in(x)
         x = self.read_in(x)
         for blk in self.blocks:
             x = blk(x)

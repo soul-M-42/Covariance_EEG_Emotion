@@ -11,6 +11,7 @@ torch.set_default_tensor_type('torch.cuda.FloatTensor')
 import matplotlib.pyplot as plt
 import itertools
 import time
+import random
 
 def logm(spd_matrices):
     eigvals, eigvecs = torch.linalg.eigh(spd_matrices)
@@ -36,6 +37,8 @@ def mean_to_zero(x):
 #     return A_normalized
 
 def save_img(data, filename='image_with_colorbar.png', cmap='viridis'):
+    if isinstance(data, torch.Tensor):
+        data = data.detach().cpu().numpy()
     fig, ax = plt.subplots()
     cax = ax.imshow(data, cmap=cmap)
     fig.colorbar(cax)
@@ -49,6 +52,20 @@ def is_spd(mat, tol=1e-6):
             if(mat[i][j] != mat[j][i]):
                 print(mat[i][j], mat[j][i])
     return bool((mat == mat.T).all() and (torch.linalg.eigvals(mat).real>=0).all())
+
+def compute_de(data):
+    batch, n_t, n_channel = data.shape
+    
+    de_values = torch.zeros((batch, n_channel))
+    
+    for b in range(batch):
+        for c in range(n_channel):
+            channel_data = data[b, :, c]
+            variance = torch.var(channel_data)
+            de = 0.5 * torch.log(2 * torch.pi * torch.e * (variance + 1e-10))
+            de_values[b, c] = de
+    
+    return de_values
 
 class channelwiseEncoder(nn.Module):
     def __init__(self, standard_channels, n_filter):
@@ -72,6 +89,35 @@ class channelwiseEncoder(nn.Module):
         outputs = outputs.reshape((outputs.shape[0], -1, outputs.shape[-1]))
         # [batch, channel*n_filter, time]
         return outputs
+
+class MLP(nn.Module):
+    def __init__(self, input_dim, hidden_dim, out_dim, dropout=0.2, bn='no'):
+        super(MLP, self).__init__()
+        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        # if (bn == 'bn1') or (bn == 'bn2'):
+        self.bn1 = nn.BatchNorm1d(hidden_dim, affine=False)
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim//2)
+        # if bn == 'bn2':
+        self.bn2 = nn.BatchNorm1d(hidden_dim//2, affine=False)
+        self.fc3 = nn.Linear(hidden_dim//2, out_dim)
+        self.bn = bn
+        self.drop = nn.Dropout(p=dropout)
+        # self.flag = False
+    def forward(self, input):
+
+        out = F.relu(self.fc1(input))
+
+        if (self.bn == 'bn1') or (self.bn == 'bn2'):
+            out = self.bn1(out)
+        out = self.drop(out)
+        out = F.relu(self.fc2(out))
+
+        if self.bn == 'bn2':
+            out = self.bn2(out)
+        out = self.drop(out)
+        out = self.fc3(out)
+
+        return out
 
 class BiMap(nn.Module):
     def __init__(self, in_shape, out_shape):
@@ -234,12 +280,11 @@ class channel_MLLA(nn.Module):
                                     in_dim=patch_size, hidden_dim=hidden_dim, out_dim=out_dim,
                                     depth=depth, num_heads=8, drop_path=drop_path, n_filter=n_filter, filterLen=filterLen)
 
-    def forward(self, x, x_channel_names):
-        n_channels_data = len(x_channel_names)
+    def forward(self, x):
         # assert n_channels_data == len(x_channel_names), "data channel not equal to channel_name dict length"
         outputs = []
 
-        for i in range(n_channels_data):
+        for i in range(x.shape[2]):
             channel_data = x[:, :, i, :]
             # print(channel_data.shape)
             # [Batch, channel, time]
@@ -295,8 +340,7 @@ class DualModel_PL(pl.LightningModule):
         self.alignmentModule_2 = Channel_Alignment(cfg.data_2.n_channs*cfg.channel_encoder.out_dim, cfg.align.n_channel_uni)
         # self.decoder = ConvOut(in_shape=cfg.align.n_channel_uni)
         # self.decoder = ConvOut_Euclidean(out_channels=64)
-        self.protos_1 = None
-        self.protos_2 = None
+        self.proto = None
         # self.protos_1 = self.init_proto_rand(dim=cfg.align.n_channel_uni, n_class=cfg.data_1.n_class)
         # self.protos_2 = self.init_proto_rand(dim=cfg.align.n_channel_uni, n_class=cfg.data_2.n_class)
         self.lr = cfg.train.lr
@@ -307,6 +351,7 @@ class DualModel_PL(pl.LightningModule):
         self.align_factor = cfg.align.factor
         self.tts_1 = None
         self.tts_2 = None
+        self.MLP = MLP(input_dim=cfg.align.n_channel_uni, hidden_dim=128, out_dim=9)
         # self.dm = dm
         # self.train_dataset = dm.train_dataset
         # self.train_set_1 = self.train_dataset.dataset_a
@@ -442,6 +487,7 @@ class DualModel_PL(pl.LightningModule):
         return pair_loss
 
     def loss_proto(self, cov, label, protos):
+        return 0, 0
         # print(cov.shape)
         # print(label.shape)
         batch_size = cov.shape[0]
@@ -459,12 +505,13 @@ class DualModel_PL(pl.LightningModule):
             dis_mat[i] = div_std(dis_mat[i])
             dis_mat[i] = mean_to_zero(dis_mat[i])
             dis_mat[i] = F.softmax(dis_mat[i])
-            
+
         
         save_img(dis_mat.detach().cpu(), 'dis_pro.png')
         num_classes = label.max().item() + 1
+        # print(label)
         label_onehot = torch.nn.functional.one_hot(label, num_classes=num_classes)
-        # save_img(label_onehot.detach().cpu(), 'label_pro.png')
+        save_img(label_onehot.detach().cpu(), 'label_pro.png')
 
         # print(dis_mat)
         acc = self.top1_accuracy(dis_mat, label)
@@ -479,6 +526,14 @@ class DualModel_PL(pl.LightningModule):
 
         return loss_ce, acc
 
+    def loss_MLP(self, feature, labels):
+        de = compute_de(feature)
+        logits = self.MLP(de)
+        CEloss = torch.nn.CrossEntropyLoss()
+        loss = CEloss(logits, labels)
+        acc = self.top1_accuracy(logits, labels)
+        return loss, acc
+    
     def extract_leading_eig_vector(self, data_dim, data, device='gpu'):
         geom_backend = torch if device == 'gpu' else np
         # data_dim = 4
@@ -507,8 +562,8 @@ class DualModel_PL(pl.LightningModule):
         mat = self.frechet_mean(mat)
         return mat
     
-    def forward(self, batch, channel_names):
-        feature = self.channelwiseEncoder(batch, channel_names)
+    def forward(self, batch):
+        feature = self.channelwiseEncoder(batch)
         return feature 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.wd)
@@ -523,8 +578,10 @@ class DualModel_PL(pl.LightningModule):
         x_2 = x_2[0]
         y_1 = y_1[0]
         y_2 = y_2[0]
-        fea_1 = self.forward(x_1, self.cfg.data_1.channels)
-        fea_2 = self.forward(x_2, self.cfg.data_2.channels)
+        y_1 = torch.Tensor([self.cfg.data_1.class_proj[int(i.item())] for i in y_1]).long()
+        y_2 = torch.Tensor([self.cfg.data_2.class_proj[int(i.item())] for i in y_2]).long()
+        fea_1 = self.forward(x_1)
+        fea_2 = self.forward(x_2)
         
         fea_1 = self.alignmentModule_1(fea_1)
         fea_2 = self.alignmentModule_2(fea_2)
@@ -547,11 +604,12 @@ class DualModel_PL(pl.LightningModule):
         # print(y_1, y_2)
         loss_1 = 0
         loss_2 = 0
-        if self.protos_1 is None:
-            self.protos_1 = self.init_proto_rand(dim=cov_1.shape[1], n_class=self.cfg.data_1.n_class)
-            self.protos_2 = self.init_proto_rand(dim=cov_2.shape[1], n_class=self.cfg.data_2.n_class)
-        loss_class_1, acc_1 = self.loss_proto(cov_1, y_1, self.protos_1)
-        loss_class_2, acc_2 = self.loss_proto(cov_2, y_2, self.protos_2)
+        
+        if self.proto is None:
+            self.proto = self.init_proto_rand(dim=self.cfg.align.n_channel_uni, n_class=9)
+
+        loss_class_1, acc_1 = self.loss_proto(cov_1, y_1, self.proto)
+        loss_class_2, acc_2 = self.loss_proto(cov_2, y_2, self.proto)
 
         loss_pair_1 = self.loss_pair(cov_1, y_1)
         loss_pair_2 = self.loss_pair(cov_2, y_2)
@@ -563,10 +621,10 @@ class DualModel_PL(pl.LightningModule):
             loss_1 = loss_1 + loss_pair_1
             loss_2 = loss_2 + loss_pair_2
 
-        print(f'train/loss_class_1={loss_class_1},train/loss_class_2={loss_class_2},train/acc_1={acc_1},train/acc_2={acc_2}')
+        print(f'train/loss_class_1={loss_class_1}\ntrain/loss_class_2={loss_class_2}\ntrain/acc_1={acc_1}\ntrain/acc_2={acc_2}')
         
         # Check grad 
-        check_grad = 0
+        check_grad = 1
         if check_grad:
             for name, param in self.named_parameters():
                 if param.grad is not None:
@@ -598,15 +656,31 @@ class DualModel_PL(pl.LightningModule):
         #     if param.requires_grad:
         #         print(f"Gradient of {name}: {param.grad}")
         loss = loss_1 + loss_2
+        loss_align = self.CDA_loss(cov_1, cov_2)
+        print(f'loss_Align={loss_align}')
+        self.log_dict({
+            'loss_align/train': loss_align, 
+            },
+            logger=self.is_logger,
+            on_step=False, on_epoch=True, prog_bar=True)
         if self.cfg.align.align_loss:
-            loss_Align = self.align_factor * self.CDA_loss(cov_1, cov_2)
-            print(f'loss_Align={loss_Align}')
-            loss = loss + loss_Align
-            self.log_dict({
-                    'loss_align/train': loss_Align, 
-                    },
-                    logger=self.is_logger,
-                    on_step=False, on_epoch=True, prog_bar=True)
+            loss = loss + self.align_factor * loss_align
+        
+        # DE-based MLP classification
+        loss_MLP_1, acc_MLP_1 = self.loss_MLP(fea_1, y_1)
+        loss_MLP_2, acc_MLP_2 = self.loss_MLP(fea_2, y_2)
+        loss_MLP = loss_MLP_1 + loss_MLP_2
+        self.log_dict({
+            'loss_MLP_1/train': loss_MLP_1, 
+            'loss_MLP_2/train': loss_MLP_2, 
+            'acc_MLP_1/train': acc_MLP_1, 
+            'acc_MLP_2/train': acc_MLP_2,     
+            },
+            logger=self.is_logger,
+            on_step=False, on_epoch=True, prog_bar=True)
+        loss = loss + loss_MLP
+
+        
         
         return loss
     
@@ -616,9 +690,11 @@ class DualModel_PL(pl.LightningModule):
         x_2 = x_2[0]
         y_1 = y_1[0]
         y_2 = y_2[0]
+        y_1 = torch.Tensor([self.cfg.data_1.class_proj[int(i.item())] for i in y_1]).long()
+        y_2 = torch.Tensor([self.cfg.data_2.class_proj[int(i.item())] for i in y_2]).long()
         # print(x_1.shape, x_2.shape, y_1.shape, y_2.shape)
-        fea_1 = self.forward(x_1, self.cfg.data_1.channels)
-        fea_2 = self.forward(x_2, self.cfg.data_2.channels)
+        fea_1 = self.forward(x_1)
+        fea_2 = self.forward(x_2)
         fea_1 = self.alignmentModule_1(fea_1)
         fea_2 = self.alignmentModule_2(fea_2)
         cov_1 = self.cov_mat(fea_1)
@@ -641,12 +717,11 @@ class DualModel_PL(pl.LightningModule):
 
         # print(loss_Align)
         # print(y_1, y_2)
-        if self.protos_1 is None:
-            self.protos_1 = self.init_proto_rand(dim=cov_1.shape[1], n_class=self.cfg.data_1.n_class)
-            self.protos_2 = self.init_proto_rand(dim=cov_2.shape[1], n_class=self.cfg.data_2.n_class)
+        if self.proto is None:
+            self.proto = self.init_proto_rand(dim=self.cfg.align.n_channel_uni, n_class=9)
 
-        loss_class_1, acc_1 = self.loss_proto(cov_1, y_1, self.protos_1)
-        loss_class_2, acc_2 = self.loss_proto(cov_2, y_2, self.protos_2)
+        loss_class_1, acc_1 = self.loss_proto(cov_1, y_1, self.proto)
+        loss_class_2, acc_2 = self.loss_proto(cov_2, y_2, self.proto)
 
         loss_pair_1 = self.loss_pair(cov_1, y_1)
         loss_pair_2 = self.loss_pair(cov_2, y_2)
@@ -672,17 +747,32 @@ class DualModel_PL(pl.LightningModule):
                     logger=self.is_logger,
                     on_step=False, on_epoch=True, prog_bar=True)
         # fea.shape = [channel, n_filter, time']
-        # self.criterion.to(data.device)   # put it in the loss function
+        # self.criterion.to(data.device)   # put it in the l
         loss = loss_1 + loss_2
+        loss_align = self.CDA_loss(cov_1, cov_2)
+        print(f'loss_Align={loss_align}')
+        self.log_dict({
+            'loss_align/val': loss_align, 
+            },
+            logger=self.is_logger,
+            on_step=False, on_epoch=True, prog_bar=True)
         if self.cfg.align.align_loss:
-            loss_Align = self.align_factor * self.CDA_loss(cov_1, cov_2)
-            print(f'loss_Align={loss_Align}')
-            loss = loss + loss_Align
-            self.log_dict({
-                    'loss_align/val': loss_Align, 
-                    },
-                    logger=self.is_logger,
-                    on_step=False, on_epoch=True, prog_bar=True)
+            loss = loss + self.align_factor * loss_align
+        
+        # DE-based MLP classification
+        loss_MLP_1, acc_MLP_1 = self.loss_MLP(fea_1, y_1)
+        loss_MLP_2, acc_MLP_2 = self.loss_MLP(fea_2, y_2)
+        loss_MLP = loss_MLP_1 + loss_MLP_2
+        self.log_dict({
+            'loss_MLP_1/val': loss_MLP_1, 
+            'loss_MLP_2/val': loss_MLP_2, 
+            'acc_MLP_1/val': acc_MLP_1, 
+            'acc_MLP_2/val': acc_MLP_2,     
+            },
+            logger=self.is_logger,
+            on_step=False, on_epoch=True, prog_bar=True)
+        loss = loss + loss_MLP
+        
         return loss
     
     def predict_step(self, batch, batch_idx):

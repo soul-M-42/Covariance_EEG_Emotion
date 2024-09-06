@@ -14,6 +14,7 @@ timeLen2: 1
 timeStep2: 1
 
 class_names: ['Disgust', 'Fear', 'Sad', 'Neutral', 'Happy']
+class_proj: [1, 2, 3, 4, 5]
 channels: [
     "FP1", "FPZ", "FP2", "AF3", "AF4", "F7", "F5", "F3", "F1", "FZ", "F2", "F4", "F6", "F8",
     "FT7", "FC5", "FC3", "FC1", "FCZ", "FC2", "FC4", "FC6", "FT8", "T7", "C5", "C3", "C1", "CZ",
