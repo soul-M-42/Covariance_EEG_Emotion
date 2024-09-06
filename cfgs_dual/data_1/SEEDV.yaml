@@ -1,5 +1,5 @@
 dataset_name: 'SEEDV'
-data_dir: '/mnt/data/SEEDV'
+data_dir: '/mnt/dataset0/xinke/nsy/SEEDV'
 fs: 125
 n_channs: 60
 n_session: 3

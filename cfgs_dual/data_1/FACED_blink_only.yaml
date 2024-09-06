@@ -1,5 +1,5 @@
 dataset_name: 'FACED'
-data_dir: '/mnt/data/FACED/Faced_blink_only'
+data_dir: '/mnt/dataset0/xinke/nsy/Faced_blink_only'
 fs: 125
 n_channs: 30
 n_session: 1  

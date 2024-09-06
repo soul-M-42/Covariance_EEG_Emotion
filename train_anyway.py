@@ -6,19 +6,20 @@ import numpy as np
 import pytorch_lightning as pl
 # from pytorch_lightning.loggers import WandbLogger
 # import wandb
+import os
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from dual_dataloader import DualDataModule
 from dual_model import DualModel_PL
 from data.pl_datamodule import EEGDataModule
-import os
 import logging
 from pytorch_lightning.loggers import TensorBoardLogger
+os.environ["CUDA_VISIBLE_DEVICES"]="3"
+os.environ["WORLD_SIZE"]="1"
 
 log = logging.getLogger(__name__)
 
 @hydra.main(config_path="cfgs_dual", config_name="config_dual", version_base="1.3")
 def run_pipeline(cfg: DictConfig):
-    os.environ["GEOMSTATS_BACKEND"] = 'numpy' if cfg.align.device == 'cpu' else 'pytorch'
 # 1. Load two datasets, with same time_window length, and sample from two datasets
     pl.seed_everything(cfg.seed)
     torch.backends.cudnn.deterministic = True

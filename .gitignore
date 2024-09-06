@@ -5,3 +5,4 @@ doc/
 *.ckpt
 *.png
 lightning_logs/
+clisa_run/

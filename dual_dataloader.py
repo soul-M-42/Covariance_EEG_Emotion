@@ -22,6 +22,23 @@ class EEGSampler:
         self.n_sub2 = len(self.subs2)
         self.n_session1 = self.set1.n_session
         self.n_session2 = self.set2.n_session
+        self.pairs_1 = []
+        self.pairs_2 = []
+        for i in range(self.n_sub1*self.n_session1):
+            for j in range(i+1, self.n_sub1*self.n_session1):
+                if(int(i % self.n_session1) == int(j % self.n_session1)):
+                    # from the same session
+                    self.pairs_1.append((i,j))
+        for i in range(self.n_sub2*self.n_session2):
+            for j in range(i+1, self.n_sub2*self.n_session2):
+                if(int(i % self.n_session2) == int(j % self.n_session2)):
+                    # from the same session
+                    self.pairs_2.append((i,j))
+        self.n_pairs_1 = len(self.pairs_1)
+        self.n_pairs_2 = len(self.pairs_2)
+        print('Dataloader Length:')
+        print(self.n_pairs_1, self.n_pairs_2)
+        self.batchsize = max(self.n_pairs_1, self.n_pairs_2)
     
     def get_sample(self, set, subsession):
         save_dir = os.path.join(set.cfg.data_dir,'sliced_data')
@@ -53,25 +70,9 @@ class EEGSampler:
         return ind_this
 
     def __len__(self):
-        return self.n_pairs
-        n_pair_1 = self.n_sub1*self.n_session1
-        n_pair_2 = self.n_sub2*self.n_session2
-        return n_pair_1 * n_pair_2
+        return self.batchsize
 
     def __iter__(self):
-        pairs_1 = []
-        pairs_2 = []
-        for i in range(self.n_sub1*self.n_session1):
-            for j in range(i+1, self.n_sub1*self.n_session1):
-                if(int(i % self.n_session1) == int(j % self.n_session1)):
-                    # from the same session
-                    pairs_1.append((i,j))
-        for i in range(self.n_sub2*self.n_session2):
-            for j in range(i+1, self.n_sub2*self.n_session2):
-                if(int(i % self.n_session2) == int(j % self.n_session2)):
-                    # from the same session
-                    pairs_2.append((i,j))
-        
         # for pair1 in pairs_1:
         #     for pair2 in pairs_2:
         #         idx_1 = np.array([])
@@ -86,9 +87,9 @@ class EEGSampler:
         #         # Yield a tuple containing both indices
         #         yield list(idx_1.astype(int)), list(idx_2.astype(int))
 
-        for i in range(self.n_pairs):
-            pair1 = random.choice(pairs_1)
-            pair2 = random.choice(pairs_2)
+        for i in range(self.batchsize):
+            pair1 = self.pairs_1[i % self.n_pairs_1]
+            pair2 = self.pairs_2[i % self.n_pairs_2]
             idx_1 = np.array([])
             idx_2 = np.array([])
             idx_1 = np.concatenate((self.get_sample(set=self.set1, subsession=pair1[0]),

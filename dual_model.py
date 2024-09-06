@@ -18,19 +18,22 @@ def logm(spd_matrices):
     X_log = eigvecs @ log_eigvals @ eigvecs.transpose(-2, -1)
     return X_log
 
-# def matrix_norm(x):
-#     x = x.clone() - torch.mean(x.clone())
-#     x = x.clone() / torch.std(x.clone())
-#     return x
+def div_std(x):
+    x = x.clone() / torch.std(x.clone())
+    return x
 
-def log_euclidean_normalization(A):
-    save_img(A.detach().cpu(), 'A_BEFORE.png')
-    A = (A + A.T) / 2
-    A_log = logm(A)
-    A_log_normalized = (A_log - A_log.mean()) / A_log.std()
-    A_normalized = torch.linalg.matrix_exp(A_log_normalized)
-    save_img(A.detach().cpu(), 'A_AFTER.png')
-    return A_normalized
+def mean_to_zero(x):
+    x = x.clone() - torch.mean(x.clone())
+    return x
+
+# def log_euclidean_normalization(A):
+#     save_img(A.detach().cpu(), 'A_BEFORE.png')
+#     A = (A + A.T) / 2
+#     A_log = logm(A)
+#     A_log_normalized = (A_log - A_log.mean()) / A_log.std()
+#     A_normalized = torch.linalg.matrix_exp(A_log_normalized)
+#     save_img(A_normalized.detach().cpu(), 'A_AFTER.png')
+#     return A_normalized
 
 def save_img(data, filename='image_with_colorbar.png', cmap='viridis'):
     fig, ax = plt.subplots()
@@ -290,8 +293,8 @@ class DualModel_PL(pl.LightningModule):
         # self.channelwiseEncoder = channelwiseEncoder(n_filter=cfg.channel_encoder.out_dim, standard_channels=cfg.data_1.channels)
         self.alignmentModule_1 = Channel_Alignment(cfg.data_1.n_channs*cfg.channel_encoder.out_dim, cfg.align.n_channel_uni)
         self.alignmentModule_2 = Channel_Alignment(cfg.data_2.n_channs*cfg.channel_encoder.out_dim, cfg.align.n_channel_uni)
-        self.decoder = ConvOut(in_shape=cfg.align.n_channel_uni)
-        self.decoder = ConvOut_Euclidean(out_channels=64)
+        # self.decoder = ConvOut(in_shape=cfg.align.n_channel_uni)
+        # self.decoder = ConvOut_Euclidean(out_channels=64)
         self.protos_1 = None
         self.protos_2 = None
         # self.protos_1 = self.init_proto_rand(dim=cfg.align.n_channel_uni, n_class=cfg.data_1.n_class)
@@ -312,12 +315,12 @@ class DualModel_PL(pl.LightningModule):
 
     def cov_mat(self, data):
         batch_size, t, num_channels = data.shape
-        data_centered = data - data.mean(dim=1, keepdim=True)
-        for data_i in data_centered:
-            # save_img(data_i.detach().cpu(), 'data_mat.png')
-            # time.sleep(1)
-            print(data_i.shape)
-        cov_matrices = torch.matmul(data_centered.transpose(1, 2), data_centered) / (t - 1)
+        data = data - data.mean(dim=1, keepdim=True)
+        # for data_i in data_centered:
+        #     # save_img(data_i.detach().cpu(), 'data_mat.png')
+        #     # time.sleep(1)
+        #     print(data_i.shape)
+        cov_matrices = torch.matmul(data.transpose(1, 2), data) / (t - 1)
             # cov_matrices[i] = log_euclidean_normalization(cov_matrices[i])
         # print(cov_matrices.shape)
         # mean = cov_matrices.mean(dim=0)
@@ -399,21 +402,11 @@ class DualModel_PL(pl.LightningModule):
         
         return accuracy
 
-    def init_proto(self, cov, y, n_class):
-        class_mean_cov = torch.zeros((n_class, cov.size(1), cov.size(2)))
-        print(y, y.shape)
-        for i in range(n_class):
-            class_cov = cov[y == i]
-            class_mean_cov[i] = self.frechet_mean(class_cov)
-        return nn.Parameter(class_mean_cov)
-
     def init_proto_rand(self, dim, n_class):
         T_init = 64
         prototype_init = torch.zeros((n_class, dim, dim))
         for i in range(n_class):
-            prototype_init[i] = self.cov_mat(torch.randn(1, T_init, dim))
-            if(not is_spd(prototype_init[i])):
-                raise('not sym init')
+            prototype_init[i] = div_std(self.cov_mat(torch.randn(1, T_init, dim)))
         return nn.Parameter(prototype_init)
 
     def loss_pair(self, cov, emo_label):
@@ -433,8 +426,8 @@ class DualModel_PL(pl.LightningModule):
         mask = torch.eye(labels.shape[0], dtype=torch.bool)
         labels = labels[~mask].view(labels.shape[0], -1)
         similarity_matrix = similarity_matrix[~mask].view(similarity_matrix.shape[0], -1)
-        similarity_matrix = similarity_matrix.clone() - torch.mean(similarity_matrix.clone())
-        similarity_matrix = similarity_matrix.clone() / torch.std(similarity_matrix.clone())
+        similarity_matrix = mean_to_zero(similarity_matrix)
+        similarity_matrix = div_std(similarity_matrix)
 
         save_img(similarity_matrix.detach().cpu(), 'dis_pair.png')
         save_img(labels.detach().cpu(), 'label_pair.png')
@@ -457,13 +450,18 @@ class DualModel_PL(pl.LightningModule):
         for i, cov_i in enumerate(cov):
             # save_img(cov_i.detach().cpu(), 'cov_i.png')
             for j, pro_j in enumerate(protos):
+                # pro_j = div_std(pro_j)
                 # print(is_spd(cov_i))
                 # print(is_spd(pro_j))
                 dis_mat[i][j] = -self.frobenius_distance(cov_i, pro_j)
                 # save_img(pro_j.detach().cpu(), 'pro_j.png')
                 # print(-dis_mat[i][j])
+            dis_mat[i] = div_std(dis_mat[i])
+            dis_mat[i] = mean_to_zero(dis_mat[i])
+            dis_mat[i] = F.softmax(dis_mat[i])
+            
         
-        # save_img(dis_mat.detach().cpu(), 'dis_pro.png')
+        save_img(dis_mat.detach().cpu(), 'dis_pro.png')
         num_classes = label.max().item() + 1
         label_onehot = torch.nn.functional.one_hot(label, num_classes=num_classes)
         # save_img(label_onehot.detach().cpu(), 'label_pro.png')
@@ -530,10 +528,13 @@ class DualModel_PL(pl.LightningModule):
         
         fea_1 = self.alignmentModule_1(fea_1)
         fea_2 = self.alignmentModule_2(fea_2)
-        save_img(fea_1, 'fea_1.png')
-        save_img(fea_2, 'fea_2.png')
         cov_1 = self.cov_mat(fea_1)
         cov_2 = self.cov_mat(fea_2)
+        
+        for i in range(len(cov_1)):
+            cov_1[i] = div_std(cov_1[i])
+        for i in range(len(cov_2)):
+            cov_2[i] = div_std(cov_2[i])
         # cov_1 = self.decoder(cov_1)
         # cov_2 = self.decoder(cov_2)
         # if self.cfg.align.to_riem:
@@ -565,13 +566,17 @@ class DualModel_PL(pl.LightningModule):
         print(f'train/loss_class_1={loss_class_1},train/loss_class_2={loss_class_2},train/acc_1={acc_1},train/acc_2={acc_2}')
         
         # Check grad 
-        for name, param in self.named_parameters():
-            if param.grad is not None:
-                if 'encoder' not in name:
-                    grad_norm = param.grad.data.norm(2).item()
-                    print(f'grad_norm_{name}', grad_norm)
-                # grad_norm = param.grad.data.norm(2).item()
-                # print(f'grad_norm_{name}', grad_norm)
+        check_grad = 0
+        if check_grad:
+            for name, param in self.named_parameters():
+                if param.grad is not None:
+                    if 'encoder' not in name:
+                        grad_norm = param.grad.data.norm(2).item()
+                        print(f'grad_norm_{name}', grad_norm)
+                    else:
+                        grad_norm = param.grad.data.norm(2).item()
+                        print(f'grad_norm_{name}', grad_norm)
+                        pass
         # print('\n')
         
         # print('loss_class_1/train,',loss_class_1, 
@@ -616,12 +621,16 @@ class DualModel_PL(pl.LightningModule):
         fea_2 = self.forward(x_2, self.cfg.data_2.channels)
         fea_1 = self.alignmentModule_1(fea_1)
         fea_2 = self.alignmentModule_2(fea_2)
-        save_img(fea_1, 'fea_1.png')
-        save_img(fea_2, 'fea_2.png')
         cov_1 = self.cov_mat(fea_1)
         cov_2 = self.cov_mat(fea_2)
         # cov_1 = self.decoder(cov_1)
         # cov_2 = self.decoder(cov_2)
+        
+        for i in range(len(cov_1)):
+            cov_1[i] = div_std(cov_1[i])
+        for i in range(len(cov_2)):
+            cov_2[i] = div_std(cov_2[i])
+            
         loss_1 = 0
         loss_2 = 0
         
