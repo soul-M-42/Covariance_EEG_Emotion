@@ -29,7 +29,7 @@ align:
   factor: 0.05
   n_channel_uni: 60
   to_riem: False
-  align_loss: True
+  align_loss: False
   clisa_loss: False
 
 log:
@@ -38,7 +38,7 @@ log:
   # logpath: 'log'
   # logpath: 'log'
   run: 4
-  proj_name: 'MLP_timeLen=${data_1.timeLen}_CDA=${align.align_loss}_Riem=${align.to_riem}_patchSize=${channel_encoder.patch_size}_patchStride=${channel_encoder.patch_stride}_hidden_dim=${channel_encoder.hidden_dim}_out_dim=${channel_encoder.out_dim}_depth=${channel_encoder.depth}_channelUni=${align.n_channel_uni}_wd=${train.wd}_alignFactor=${align.factor}'
+  proj_name: 'MLP_single_timeLen=${data_1.timeLen}_CDA=${align.align_loss}_Riem=${align.to_riem}_patchSize=${channel_encoder.patch_size}_patchStride=${channel_encoder.patch_stride}_hidden_dim=${channel_encoder.hidden_dim}_out_dim=${channel_encoder.out_dim}_depth=${channel_encoder.depth}_channelUni=${align.n_channel_uni}_wd=${train.wd}_alignFactor=${align.factor}'
   # CDA for Cross Dataset Align
 
   exp_name: ''
@@ -52,7 +52,7 @@ train:
   gpus: [0]
   iftest: False
   # n_subs: ${data.n_subs}
-  lr: 1e-3
+  lr: 6e-4
   wd: 0.00015
   loss_temp: 0.07
   max_epochs: 60

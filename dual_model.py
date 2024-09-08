@@ -433,6 +433,9 @@ class DualModel_PL(pl.LightningModule):
         return distance
 
     def top1_accuracy(self, dis_mat, labels):
+        save_img(dis_mat, 'MLP_logits.png')
+        label_onehot = torch.nn.functional.one_hot(labels, num_classes=9)
+        save_img(label_onehot, 'label_MLP.png')
         # Get the predicted classes (indices of the 到原型最小距离 in each row)
         predicted_classes = torch.argmax(dis_mat, dim=1)
         
@@ -528,6 +531,7 @@ class DualModel_PL(pl.LightningModule):
 
     def loss_MLP(self, feature, labels):
         de = compute_de(feature)
+        save_img(de, 'de_debug.png')
         logits = self.MLP(de)
         CEloss = torch.nn.CrossEntropyLoss()
         loss = CEloss(logits, labels)
@@ -588,6 +592,10 @@ class DualModel_PL(pl.LightningModule):
         cov_1 = self.cov_mat(fea_1)
         cov_2 = self.cov_mat(fea_2)
         
+        de = compute_de(fea_2)
+        logits = self.MLP(de)
+        save_img(logits, 'logits_debug.png')
+        
         for i in range(len(cov_1)):
             cov_1[i] = div_std(cov_1[i])
         for i in range(len(cov_2)):
@@ -624,7 +632,7 @@ class DualModel_PL(pl.LightningModule):
         print(f'train/loss_class_1={loss_class_1}\ntrain/loss_class_2={loss_class_2}\ntrain/acc_1={acc_1}\ntrain/acc_2={acc_2}')
         
         # Check grad 
-        check_grad = 1
+        check_grad = 0
         if check_grad:
             for name, param in self.named_parameters():
                 if param.grad is not None:
@@ -669,7 +677,7 @@ class DualModel_PL(pl.LightningModule):
         # DE-based MLP classification
         loss_MLP_1, acc_MLP_1 = self.loss_MLP(fea_1, y_1)
         loss_MLP_2, acc_MLP_2 = self.loss_MLP(fea_2, y_2)
-        loss_MLP = loss_MLP_1 + loss_MLP_2
+        loss_MLP = loss_MLP_2
         self.log_dict({
             'loss_MLP_1/train': loss_MLP_1, 
             'loss_MLP_2/train': loss_MLP_2, 
@@ -699,8 +707,10 @@ class DualModel_PL(pl.LightningModule):
         fea_2 = self.alignmentModule_2(fea_2)
         cov_1 = self.cov_mat(fea_1)
         cov_2 = self.cov_mat(fea_2)
-        # cov_1 = self.decoder(cov_1)
-        # cov_2 = self.decoder(cov_2)
+        
+        de = compute_de(fea_2)
+        logits = self.MLP(de)
+        save_img(logits, 'logits_debug.png')
         
         for i in range(len(cov_1)):
             cov_1[i] = div_std(cov_1[i])
@@ -762,7 +772,7 @@ class DualModel_PL(pl.LightningModule):
         # DE-based MLP classification
         loss_MLP_1, acc_MLP_1 = self.loss_MLP(fea_1, y_1)
         loss_MLP_2, acc_MLP_2 = self.loss_MLP(fea_2, y_2)
-        loss_MLP = loss_MLP_1 + loss_MLP_2
+        loss_MLP = loss_MLP_2
         self.log_dict({
             'loss_MLP_1/val': loss_MLP_1, 
             'loss_MLP_2/val': loss_MLP_2, 
