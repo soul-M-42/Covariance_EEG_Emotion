@@ -13,8 +13,8 @@ from dual_model import DualModel_PL
 from data.pl_datamodule import EEGDataModule
 import logging
 from pytorch_lightning.loggers import TensorBoardLogger
-os.environ["CUDA_VISIBLE_DEVICES"]="3"
-os.environ["WORLD_SIZE"]="1"
+# os.environ["CUDA_VISIBLE_DEVICES"]="3"
+# os.environ["WORLD_SIZE"]="1"
 
 log = logging.getLogger(__name__)
 

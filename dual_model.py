@@ -12,12 +12,11 @@ import matplotlib.pyplot as plt
 import itertools
 import time
 import random
+from utils_new import stratified_layerNorm
 
-def logm(spd_matrices):
-    eigvals, eigvecs = torch.linalg.eigh(spd_matrices)
-    log_eigvals = torch.diag(torch.log(eigvals + 1.0))
-    X_log = eigvecs @ log_eigvals @ eigvecs.transpose(-2, -1)
-    return X_log
+def logm(t):
+    u, s, v = torch.svd(t) 
+    return u @ torch.diag_embed(torch.log(s)) @ v.transpose(-2, -1)
 
 def div_std(x):
     x = x.clone() / torch.std(x.clone())
@@ -37,6 +36,7 @@ def mean_to_zero(x):
 #     return A_normalized
 
 def save_img(data, filename='image_with_colorbar.png', cmap='viridis'):
+    print('called')
     if isinstance(data, torch.Tensor):
         data = data.detach().cpu().numpy()
     fig, ax = plt.subplots()
@@ -44,6 +44,37 @@ def save_img(data, filename='image_with_colorbar.png', cmap='viridis'):
     fig.colorbar(cax)
     plt.savefig(filename, bbox_inches='tight', pad_inches=0.1)
     plt.close(fig)
+
+def top_k_accuracy(logits, labels, ks=[5]):
+    """
+    计算给定 logits 和 labels 的 top-k 准确率。
+    
+    参数：
+    - logits: Tensor of shape (N, num_classes), 模型的预测输出
+    - labels: Tensor of shape (N,), 包含实际类别的下标格式的标签
+    - ks: List of integers, 指定要计算的 k 值，如 [1, 5] 表示计算 top-1 和 top-5 准确率
+    
+    返回：
+    - acc_list: List of accuracies corresponding to each k in ks
+    """
+    max_k = max(ks)  # 计算需要的最大 k 值
+    batch_size = labels.size(0)
+
+    # 获取 top-k 预测，返回的 top_preds 形状为 (N, max_k)
+    _, top_preds = logits.topk(max_k, dim=1, largest=True, sorted=True)
+
+    # 扩展 labels 的形状以便与 top_preds 比较，形状为 (N, max_k)
+    top_preds = top_preds.t()  # 转置为 (max_k, N)
+    correct = top_preds.eq(labels.view(1, -1).expand_as(top_preds))  # 检查 top-k 内是否有正确的标签
+
+    # 计算每个 k 对应的准确率
+    acc_list = []
+    for k in ks:
+        correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)  # 获取前 k 的正确预测数量
+        accuracy = correct_k.mul_(100.0 / batch_size).item()  # 计算准确率百分比
+        acc_list.append(accuracy)
+
+    return acc_list
 
 def is_spd(mat, tol=1e-6):
     return True
@@ -64,7 +95,9 @@ def compute_de(data):
             variance = torch.var(channel_data)
             de = 0.5 * torch.log(2 * torch.pi * torch.e * (variance + 1e-10))
             de_values[b, c] = de
-    
+    # de_values = de_values.reshape((batch, -1, n_channel, 1))
+    de_values = stratified_layerNorm(de_values, n_samples=batch/2)
+    # de_values = de_values.reshape((batch, -1))
     return de_values
 
 class channelwiseEncoder(nn.Module):
@@ -319,7 +352,27 @@ class Channel_Alignment(nn.Module):
         out = torch.matmul(out, self.A)
         return out
 
-
+class Clisa_Proj(nn.Module):
+    def __init__(self, n_dim_in, avgPoolLen=3, multiFact=2, timeSmootherLen=6):
+        super().__init__()
+        self.avgpool = nn.AvgPool2d((1, avgPoolLen))
+        self.timeConv1 = nn.Conv2d(n_dim_in, n_dim_in * multiFact, (1, timeSmootherLen))
+        self.timeConv2 = nn.Conv2d(n_dim_in * multiFact, n_dim_in * multiFact * multiFact, (1, timeSmootherLen), groups=n_dim_in * multiFact)
+        
+    def forward(self, x):
+        out = x
+        B, T, n_dim = x.shape
+        out = out.permute(0, 2, 1)
+        # B, n_dim, T
+        out = out.unsqueeze(2)
+        out = self.avgpool(out)    # B*n_dim*1*t_pool
+        out = stratified_layerNorm(out, int(out.shape[0]/2))
+        out = F.relu(self.timeConv1(out))
+        out = F.relu(self.timeConv2(out))          #B*(n_dim*multiFact*multiFact)*1*t_pool
+        out = stratified_layerNorm(out, int(out.shape[0]/2))     
+        out = out.reshape(out.shape[0], -1)
+        out = F.normalize(out, dim=1)
+        return out
 
 class DualModel_PL(pl.LightningModule):
     def __init__(self, cfg, dm) -> None:
@@ -351,6 +404,7 @@ class DualModel_PL(pl.LightningModule):
         self.align_factor = cfg.align.factor
         self.tts_1 = None
         self.tts_2 = None
+        self.proj = Clisa_Proj(n_dim_in=cfg.align.n_channel_uni)
         self.MLP = MLP(input_dim=cfg.align.n_channel_uni, hidden_dim=128, out_dim=9)
         # self.dm = dm
         # self.train_dataset = dm.train_dataset
@@ -423,13 +477,10 @@ class DualModel_PL(pl.LightningModule):
         # 计算Frobenius距离
         if matrix_a.shape != matrix_b.shape:
             raise ValueError("Must have same shape")
-        if type(matrix_a) == torch.Tensor:
-            if self.cfg.align.to_riem:
-                distance = torch.linalg.norm(logm(matrix_a) - logm(matrix_b), 'fro')
-                distance = distance ** 2
-            else:
-                distance = torch.linalg.norm(matrix_a - matrix_b, 'fro')
-                distance = distance ** 2
+        inner_term = matrix_a - matrix_b
+        inner_multi = inner_term @ inner_term.transpose(-1, -2)
+        _, s, _= torch.svd(inner_multi) 
+        distance = torch.sum(s, dim=-1)
         return distance
 
     def top1_accuracy(self, dis_mat, labels):
@@ -457,19 +508,27 @@ class DualModel_PL(pl.LightningModule):
             prototype_init[i] = div_std(self.cov_mat(torch.randn(1, T_init, dim)))
         return nn.Parameter(prototype_init)
 
-    def loss_pair(self, cov, emo_label):
+    def loss_clisa(self, cov, emo_label):
+        if self.cfg.align.to_riem:
+            cov = logm(cov)
+        N, C, _ = cov.shape
         n_vid = cov.shape[0] // 2
-        similarity_matrix = torch.zeros((cov.shape[0], cov.shape[0]))
+        mat_a = cov.unsqueeze(0).repeat(N, 1, 1, 1)  # [N, N, C, C]
+        mat_b = cov.unsqueeze(1).repeat(1, N, 1, 1)  # [N, N, C, C]
+        similarity_matrix = -self.frobenius_distance(mat_a, mat_b)
+        
+        save_img(similarity_matrix, 'dis_pair.png')
+        # similarity_matrix = torch.zeros((cov.shape[0], cov.shape[0]))
         labels = torch.cat([torch.arange(n_vid) for i in range(2)], dim=0)
         labels = (labels.unsqueeze(0) == labels.unsqueeze(1)).float()
-        for i in range(cov.shape[0]):
-            for j in range(i+1, cov.shape[0]):
-                cov_i = cov[i]
-                cov_j = cov[j]
-                similarity_matrix[i][j] = -self.frobenius_distance(cov_i, cov_j)
-                similarity_matrix[j][i] = similarity_matrix[i][j]
-        
 
+        
+        # for i in range(cov.shape[0]):
+        #     for j in range(i, cov.shape[0]):
+        #         cov_i = cov[i]
+        #         cov_j = cov[j]
+        #         similarity_matrix[i][j] = -self.frobenius_distance(cov_i, cov_j)
+        #         similarity_matrix[j][i] = similarity_matrix[i][j]
 
         mask = torch.eye(labels.shape[0], dtype=torch.bool)
         labels = labels[~mask].view(labels.shape[0], -1)
@@ -477,20 +536,68 @@ class DualModel_PL(pl.LightningModule):
         similarity_matrix = mean_to_zero(similarity_matrix)
         similarity_matrix = div_std(similarity_matrix)
 
-        save_img(similarity_matrix.detach().cpu(), 'dis_pair.png')
-        save_img(labels.detach().cpu(), 'label_pair.png')
+        # save_img(similarity_matrix, 'dis_pair.png')
+        # save_img(labels.detach().cpu(), 'label_pair.png')
 
         positives = similarity_matrix[labels.bool()].view(labels.shape[0], -1)
         negatives = similarity_matrix[~labels.bool()].view(similarity_matrix.shape[0], -1)
         logits = torch.cat([negatives, positives], dim=1)
+        save_img(logits, 'logits_rearranged.png')
         labels = torch.ones(logits.shape[0], dtype=torch.long)*(logits.shape[1]-1)
+        num_classes = labels.max().item() + 1
+        # print(label)
+        label_onehot = torch.nn.functional.one_hot(labels, num_classes=num_classes)
+        save_img(label_onehot, 'labels_rearranged.png')
+
         CEloss = nn.CrossEntropyLoss()
         pair_loss = CEloss(logits, labels)
-        print(f'Contrasive_loss:{pair_loss}')
         return pair_loss
 
+    def loss_clisa_fea(self, fea, temperature=0.07):
+        N, C = fea.shape
+        n_vid = N // 2
+        save_img(fea[:, :300], 'fea_debug.png')
+        similarity_matrix = torch.matmul(fea, fea.T)
+        save_img(similarity_matrix, 'dis_pair.png')
+        
+        # similarity_matrix = torch.zeros((cov.shape[0], cov.shape[0]))
+        labels = torch.cat([torch.arange(n_vid) for i in range(2)], dim=0)
+        labels = (labels.unsqueeze(0) == labels.unsqueeze(1)).float()
+
+        
+        # for i in range(cov.shape[0]):
+        #     for j in range(i, cov.shape[0]):
+        #         cov_i = cov[i]
+        #         cov_j = cov[j]
+        #         similarity_matrix[i][j] = -self.frobenius_distance(cov_i, cov_j)
+        #         similarity_matrix[j][i] = similarity_matrix[i][j]
+
+        mask = torch.eye(labels.shape[0], dtype=torch.bool)
+        labels = labels[~mask].view(labels.shape[0], -1)
+        similarity_matrix = similarity_matrix[~mask].view(similarity_matrix.shape[0], -1)
+        # similarity_matrix = mean_to_zero(similarity_matrix)
+        # similarity_matrix = div_std(similarity_matrix)
+
+        # save_img(labels.detach().cpu(), 'label_pair.png')
+
+        positives = similarity_matrix[labels.bool()].view(labels.shape[0], -1)
+        negatives = similarity_matrix[~labels.bool()].view(similarity_matrix.shape[0], -1)
+        logits = torch.cat([negatives, positives], dim=1)
+        logits = logits / temperature
+        # save_img(logits, 'logits_rearranged.png')
+        labels = torch.ones(logits.shape[0], dtype=torch.long)*(logits.shape[1]-1)
+        num_classes = labels.max().item() + 1
+        # print(label)
+        label_onehot = torch.nn.functional.one_hot(labels, num_classes=num_classes)
+        # save_img(label_onehot, 'labels_rearranged.png')
+        CEloss = nn.CrossEntropyLoss()
+        pair_loss = CEloss(logits, labels)
+        [acc_5] = top_k_accuracy(logits, labels)
+        return pair_loss, acc_5
+
+
+
     def loss_proto(self, cov, label, protos):
-        return 0, 0
         # print(cov.shape)
         # print(label.shape)
         batch_size = cov.shape[0]
@@ -589,47 +696,70 @@ class DualModel_PL(pl.LightningModule):
         
         fea_1 = self.alignmentModule_1(fea_1)
         fea_2 = self.alignmentModule_2(fea_2)
-        cov_1 = self.cov_mat(fea_1)
-        cov_2 = self.cov_mat(fea_2)
+        fea_clisa_1 = self.proj(fea_1)
+        fea_clisa_2 = self.proj(fea_2)
         
-        de = compute_de(fea_2)
-        logits = self.MLP(de)
-        save_img(logits, 'logits_debug.png')
-        
-        for i in range(len(cov_1)):
-            cov_1[i] = div_std(cov_1[i])
-        for i in range(len(cov_2)):
-            cov_2[i] = div_std(cov_2[i])
-        # cov_1 = self.decoder(cov_1)
-        # cov_2 = self.decoder(cov_2)
-        # if self.cfg.align.to_riem:
-        #     cov_1, tts_1 = self.cov_to_riem(cov_1, self.tts_1, 'train', device=self.cfg.align.device)
-        #     cov_2, tts_2 = self.cov_to_riem(cov_2, self.tts_2, 'train', device=self.cfg.align.device)
-        #     self.tts_1 = tts_1
-        #     self.tts_2 = tts_2
-
-        # print(cov_1.shape, cov_2.shape)
-        # print(y_1, y_2)
+        loss = 0
         loss_1 = 0
         loss_2 = 0
-        
-        if self.proto is None:
-            self.proto = self.init_proto_rand(dim=self.cfg.align.n_channel_uni, n_class=9)
 
-        loss_class_1, acc_1 = self.loss_proto(cov_1, y_1, self.proto)
-        loss_class_2, acc_2 = self.loss_proto(cov_2, y_2, self.proto)
+        # 1. proto_loss
+        if self.cfg.align.proto_loss:
+            if self.proto is None:
+                self.proto = self.init_proto_rand(dim=self.cfg.align.n_channel_uni, n_class=9)
+            cov_1 = self.cov_mat(fea_1)
+            cov_2 = self.cov_mat(fea_2)
+            for i in range(len(cov_1)):
+                cov_1[i] = div_std(cov_1[i])
+            for i in range(len(cov_2)):
+                cov_2[i] = div_std(cov_2[i])
+            loss_proto_1, acc_1 = self.loss_proto(cov_1, y_1, self.proto)
+            loss_proto_2, acc_2 = self.loss_proto(cov_2, y_2, self.proto)
+            loss_1 = loss_1 + loss_proto_1
+            loss_2 = loss_2 + loss_proto_2
+            loss = loss + loss_proto_1 + loss_proto_2
+            self.log_dict({
+                    'loss_proto_1/train': loss_proto_1, 
+                    'loss_proto_2/train': loss_proto_2, 
+                    'acc_proto_1/train': acc_1,
+                    'acc_proto_2/train': acc_2,
+                    },
+                    logger=self.is_logger,
+                    on_step=False, on_epoch=True, prog_bar=True)
+            print(f'loss_proto_1={loss_proto_1} loss_proto_2={loss_proto_2}\nacc_proto_1={acc_1} acc_proto_2={acc_2}')
 
-        loss_pair_1 = self.loss_pair(cov_1, y_1)
-        loss_pair_2 = self.loss_pair(cov_2, y_2)
-
-        loss_1 = loss_1 + loss_class_1
-        loss_2 = loss_2 + loss_class_2
-
+        # 2. clisa_loss
         if self.cfg.align.clisa_loss:
-            loss_1 = loss_1 + loss_pair_1
-            loss_2 = loss_2 + loss_pair_2
-
-        print(f'train/loss_class_1={loss_class_1}\ntrain/loss_class_2={loss_class_2}\ntrain/acc_1={acc_1}\ntrain/acc_2={acc_2}')
+            # loss_clisa_1 = self.loss_clisa(cov_1, y_1)
+            # loss_clisa_2 = self.loss_clisa(cov_2, y_2)
+            loss_clisa_1, acc_1 = self.loss_clisa_fea(fea_clisa_1)
+            loss_clisa_2, acc_2 = self.loss_clisa_fea(fea_clisa_2)
+            loss_1 = loss_1 + loss_clisa_1
+            loss_2 = loss_2 + loss_clisa_2
+            loss = loss + loss_clisa_1 + loss_clisa_2
+            self.log_dict({
+                    'loss_clisa_1/train': loss_clisa_1, 
+                    'loss_clisa_2/train': loss_clisa_2, 
+                    'acc5_1/train': acc_1, 
+                    'acc5_2/train': acc_2,
+                    },
+                    logger=self.is_logger,
+                    on_step=False, on_epoch=True, prog_bar=True)
+            print(f'loss_clisa_1={loss_clisa_1} loss_clisa_2={loss_clisa_2} ')
+        
+        # 3. DE-based MLP classification
+        if self.cfg.align.MLP_loss:
+            loss_MLP_1, acc_MLP_1 = self.loss_MLP(fea_1, y_1)
+            loss_MLP_2, acc_MLP_2 = self.loss_MLP(fea_2, y_2)
+            self.log_dict({
+                'loss_MLP_1/train': loss_MLP_1, 
+                'loss_MLP_2/train': loss_MLP_2, 
+                'acc_MLP_1/train': acc_MLP_1, 
+                'acc_MLP_2/train': acc_MLP_2,     
+                },
+                logger=self.is_logger,
+                on_step=False, on_epoch=True, prog_bar=True)
+            loss = loss + loss_MLP_1 + loss_MLP_2
         
         # Check grad 
         check_grad = 0
@@ -643,53 +773,6 @@ class DualModel_PL(pl.LightningModule):
                         grad_norm = param.grad.data.norm(2).item()
                         print(f'grad_norm_{name}', grad_norm)
                         pass
-        # print('\n')
-        
-        # print('loss_class_1/train,',loss_class_1, 
-        #             '\nloss_class_2/train ',loss_class_2)
-        self.log_dict({
-                    'loss_class_1/train': loss_class_1, 
-                    'loss_class_2/train': loss_class_2, 
-                    'loss_pair_1/train': loss_pair_1, 
-                    'loss_pair_2/train': loss_pair_2, 
-                    'acc_1/train': acc_1, 
-                    'acc_2/train': acc_2, 
-                    'lr': self.optimizers().param_groups[-1]['lr']
-                    },
-                    logger=self.is_logger,
-                    on_step=False, on_epoch=True, prog_bar=True)
-        # fea.shape = [channel, n_filter, time']
-        # self.criterion.to(data.device)   # put it in the loss function
-        # for name, param in self.channelwiseEncoder.named_parameters():
-        #     if param.requires_grad:
-        #         print(f"Gradient of {name}: {param.grad}")
-        loss = loss_1 + loss_2
-        loss_align = self.CDA_loss(cov_1, cov_2)
-        print(f'loss_Align={loss_align}')
-        self.log_dict({
-            'loss_align/train': loss_align, 
-            },
-            logger=self.is_logger,
-            on_step=False, on_epoch=True, prog_bar=True)
-        if self.cfg.align.align_loss:
-            loss = loss + self.align_factor * loss_align
-        
-        # DE-based MLP classification
-        loss_MLP_1, acc_MLP_1 = self.loss_MLP(fea_1, y_1)
-        loss_MLP_2, acc_MLP_2 = self.loss_MLP(fea_2, y_2)
-        loss_MLP = loss_MLP_2
-        self.log_dict({
-            'loss_MLP_1/train': loss_MLP_1, 
-            'loss_MLP_2/train': loss_MLP_2, 
-            'acc_MLP_1/train': acc_MLP_1, 
-            'acc_MLP_2/train': acc_MLP_2,     
-            },
-            logger=self.is_logger,
-            on_step=False, on_epoch=True, prog_bar=True)
-        loss = loss + loss_MLP
-
-        
-        
         return loss
     
     def validation_step(self, batch, batch_idx):
@@ -700,88 +783,91 @@ class DualModel_PL(pl.LightningModule):
         y_2 = y_2[0]
         y_1 = torch.Tensor([self.cfg.data_1.class_proj[int(i.item())] for i in y_1]).long()
         y_2 = torch.Tensor([self.cfg.data_2.class_proj[int(i.item())] for i in y_2]).long()
-        # print(x_1.shape, x_2.shape, y_1.shape, y_2.shape)
         fea_1 = self.forward(x_1)
         fea_2 = self.forward(x_2)
         fea_1 = self.alignmentModule_1(fea_1)
         fea_2 = self.alignmentModule_2(fea_2)
-        cov_1 = self.cov_mat(fea_1)
-        cov_2 = self.cov_mat(fea_2)
+        fea_clisa_1 = self.proj(fea_1)
+        fea_clisa_2 = self.proj(fea_2)
         
         de = compute_de(fea_2)
         logits = self.MLP(de)
-        save_img(logits, 'logits_debug.png')
+        # save_img(logits, 'logits_debug.png')
         
-        for i in range(len(cov_1)):
-            cov_1[i] = div_std(cov_1[i])
-        for i in range(len(cov_2)):
-            cov_2[i] = div_std(cov_2[i])
-            
+        loss = 0
         loss_1 = 0
         loss_2 = 0
-        
-        # if self.cfg.align.to_riem:
-        #     if self.tts_1 is not None:
-        #         cov_1, _ = self.cov_to_riem(cov_1, self.tts_1, 'val', device=self.cfg.align.device)
-        #         cov_2, _ = self.cov_to_riem(cov_2, self.tts_2, 'val', device=self.cfg.align.device)
 
-        # print(loss_Align)
-        # print(y_1, y_2)
-        if self.proto is None:
-            self.proto = self.init_proto_rand(dim=self.cfg.align.n_channel_uni, n_class=9)
-
-        loss_class_1, acc_1 = self.loss_proto(cov_1, y_1, self.proto)
-        loss_class_2, acc_2 = self.loss_proto(cov_2, y_2, self.proto)
-
-        loss_pair_1 = self.loss_pair(cov_1, y_1)
-        loss_pair_2 = self.loss_pair(cov_2, y_2)
-
-        loss_1 = loss_1 + loss_class_1
-        loss_2 = loss_2 + loss_class_2
-        
-        
-        if self.cfg.align.clisa_loss:
-            loss_1 = loss_1 + loss_pair_1
-            loss_2 = loss_2 + loss_pair_2
-
-        # print(f'test/loss_class_1={loss_class_1},test/loss_class_2={loss_class_2},test/acc_1={acc_1},test/acc_2={acc_2}')
-        self.log_dict({
-                    'loss_class_1/val': loss_class_1, 
-                    'loss_class_2/val': loss_class_2, 
-                    'loss_pair_1/val': loss_pair_1, 
-                    'loss_pair_2/val': loss_pair_2, 
-                    'acc_1/val': acc_1, 
-                    'acc_2/val': acc_2, 
-                    'lr/val': self.optimizers().param_groups[-1]['lr']
+        # 1. proto_loss
+        if self.cfg.align.proto_loss:
+            if self.proto is None:
+                self.proto = self.init_proto_rand(dim=self.cfg.align.n_channel_uni, n_class=9)
+            cov_1 = self.cov_mat(fea_1)
+            cov_2 = self.cov_mat(fea_2)
+            for i in range(len(cov_1)):
+                cov_1[i] = div_std(cov_1[i])
+            for i in range(len(cov_2)):
+                cov_2[i] = div_std(cov_2[i])
+            loss_proto_1, acc_1 = self.loss_proto(cov_1, y_1, self.proto)
+            loss_proto_2, acc_2 = self.loss_proto(cov_2, y_2, self.proto)
+            loss_1 = loss_1 + loss_proto_1
+            loss_2 = loss_2 + loss_proto_2
+            loss = loss + loss_1 + loss_2
+            self.log_dict({
+                    'loss_proto_1/val': loss_proto_1, 
+                    'loss_proto_2/val': loss_proto_2, 
+                    'acc_proto_1/val': acc_1,
+                    'acc_proto_2/val': acc_2,
                     },
                     logger=self.is_logger,
                     on_step=False, on_epoch=True, prog_bar=True)
-        # fea.shape = [channel, n_filter, time']
-        # self.criterion.to(data.device)   # put it in the l
-        loss = loss_1 + loss_2
-        loss_align = self.CDA_loss(cov_1, cov_2)
-        print(f'loss_Align={loss_align}')
-        self.log_dict({
-            'loss_align/val': loss_align, 
-            },
-            logger=self.is_logger,
-            on_step=False, on_epoch=True, prog_bar=True)
-        if self.cfg.align.align_loss:
-            loss = loss + self.align_factor * loss_align
+            print(f'loss_proto_1={loss_proto_1} loss_proto_2={loss_proto_2}\nacc_proto_1={acc_1} acc_proto_2={acc_2}')
+
+        # 2. clisa_loss
+        if self.cfg.align.clisa_loss:
+            # loss_clisa_1 = self.loss_clisa(cov_1, y_1)
+            # loss_clisa_2 = self.loss_clisa(cov_2, y_2)
+            loss_clisa_1, acc_1 = self.loss_clisa_fea(fea_clisa_1)
+            loss_clisa_2, acc_2 = self.loss_clisa_fea(fea_clisa_2)
+            loss_1 = loss_1 + loss_clisa_1
+            loss_2 = loss_2 + loss_clisa_2
+            loss = loss + loss_clisa_1 + loss_clisa_2
+            self.log_dict({
+                    'loss_clisa_1/val': loss_clisa_1, 
+                    'loss_clisa_2/val': loss_clisa_2, 
+                    'acc5_1/val': acc_1, 
+                    'acc5_2/val': acc_2,
+                    },
+                    logger=self.is_logger,
+                    on_step=False, on_epoch=True, prog_bar=True)
+            print(f'loss_clisa_1={loss_clisa_1} loss_clisa_2={loss_clisa_2} ')
         
-        # DE-based MLP classification
-        loss_MLP_1, acc_MLP_1 = self.loss_MLP(fea_1, y_1)
-        loss_MLP_2, acc_MLP_2 = self.loss_MLP(fea_2, y_2)
-        loss_MLP = loss_MLP_2
-        self.log_dict({
-            'loss_MLP_1/val': loss_MLP_1, 
-            'loss_MLP_2/val': loss_MLP_2, 
-            'acc_MLP_1/val': acc_MLP_1, 
-            'acc_MLP_2/val': acc_MLP_2,     
-            },
-            logger=self.is_logger,
-            on_step=False, on_epoch=True, prog_bar=True)
-        loss = loss + loss_MLP
+        # 3. DE-based MLP classification
+        if self.cfg.align.MLP_loss:
+            loss_MLP_1, acc_MLP_1 = self.loss_MLP(fea_1, y_1)
+            loss_MLP_2, acc_MLP_2 = self.loss_MLP(fea_2, y_2)
+            self.log_dict({
+                'loss_MLP_1/val': loss_MLP_1, 
+                'loss_MLP_2/val': loss_MLP_2, 
+                'acc_MLP_1/val': acc_MLP_1, 
+                'acc_MLP_2/val': acc_MLP_2,     
+                },
+                logger=self.is_logger,
+                on_step=False, on_epoch=True, prog_bar=True)
+            loss = loss + loss_MLP_1 + loss_MLP_2
+        
+        # Check grad 
+        check_grad = 0
+        if check_grad:
+            for name, param in self.named_parameters():
+                if param.grad is not None:
+                    if 'encoder' not in name:
+                        grad_norm = param.grad.data.norm(2).item()
+                        print(f'grad_norm_{name}', grad_norm)
+                    else:
+                        grad_norm = param.grad.data.norm(2).item()
+                        print(f'grad_norm_{name}', grad_norm)
+                        pass
         
         return loss
     

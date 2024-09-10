@@ -16,8 +16,8 @@ seed: 7
 
 channel_encoder:
   patch_size: 30
-  hidden_dim: 32
-  out_dim: 16
+  hidden_dim: 64
+  out_dim: 32
   depth: 2
   patch_stride: 5
   drop_path: 0.1
@@ -28,9 +28,11 @@ align:
   device: gpu
   factor: 0.05
   n_channel_uni: 60
-  to_riem: False
+  to_riem: True
+  proto_loss: False
   align_loss: False
-  clisa_loss: False
+  clisa_loss: True
+  MLP_loss: False
 
 log:
   is_logger: True
@@ -38,10 +40,10 @@ log:
   # logpath: 'log'
   # logpath: 'log'
   run: 4
-  proj_name: 'MLP_single_timeLen=${data_1.timeLen}_CDA=${align.align_loss}_Riem=${align.to_riem}_patchSize=${channel_encoder.patch_size}_patchStride=${channel_encoder.patch_stride}_hidden_dim=${channel_encoder.hidden_dim}_out_dim=${channel_encoder.out_dim}_depth=${channel_encoder.depth}_channelUni=${align.n_channel_uni}_wd=${train.wd}_alignFactor=${align.factor}'
+  proj_name: 'Clisa_proj_timeLen=${data_1.timeLen}_CDA=${align.align_loss}_Riem=${align.to_riem}_patchSize=${channel_encoder.patch_size}_patchStride=${channel_encoder.patch_stride}_hidden_dim=${channel_encoder.hidden_dim}_out_dim=${channel_encoder.out_dim}_depth=${channel_encoder.depth}_channelUni=${align.n_channel_uni}_wd=${train.wd}_alignFactor=${align.factor}'
   # CDA for Cross Dataset Align
 
-  exp_name: ''
+  exp_name: 'hess'
 
   # cp_dir: ext/mlp cp save path, different dataset will be saved in separate subfolder 
   cp_dir: '/mnt/data/model_weights/DUAL_cp'   
@@ -55,7 +57,7 @@ train:
   lr: 6e-4
   wd: 0.00015
   loss_temp: 0.07
-  max_epochs: 60
+  max_epochs: 500
   min_epochs: 10
   patience: 30
   restart_times: ${train.max_epochs}  # scheduler
