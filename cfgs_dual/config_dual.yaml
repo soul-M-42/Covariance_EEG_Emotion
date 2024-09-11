@@ -28,7 +28,7 @@ align:
   device: gpu
   factor: 0.05
   n_channel_uni: 60
-  to_riem: True
+  to_riem: False
   proto_loss: False
   align_loss: False
   clisa_loss: True
@@ -49,7 +49,7 @@ log:
   cp_dir: '/mnt/data/model_weights/DUAL_cp'   
 
 train:
-  n_fold: 2
+  n_fold: 3
   n_pairs: 256
   gpus: [0]
   iftest: False

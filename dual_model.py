@@ -36,6 +36,7 @@ def mean_to_zero(x):
 #     return A_normalized
 
 def save_img(data, filename='image_with_colorbar.png', cmap='viridis'):
+    return
     print('called')
     if isinstance(data, torch.Tensor):
         data = data.detach().cpu().numpy()
@@ -328,7 +329,6 @@ class channel_MLLA(nn.Module):
             # encoder_index = self.standard_channels.index(x_channel_names[i])
             # out_channel_i = self.encoders[encoder_index](channel_data)
             out_channel_i = self.encoder(channel_data)
-            channel_data = channel_data.permute(0, 2, 1)
             outputs.append(out_channel_i)
         outputs = torch.stack(outputs, dim=1)
         outputs = outputs.permute(0, 1, 3, 2)
@@ -349,7 +349,7 @@ class Channel_Alignment(nn.Module):
         # 30(ch) * 30 * 1 * 2750
         out = torch.permute(input, (0, 2, 1))
         # [batch, time', channel*n_filter]
-        out = torch.matmul(out, self.A)
+        out = F.relu(torch.matmul(out, self.A))
         return out
 
 class Clisa_Proj(nn.Module):
@@ -364,8 +364,8 @@ class Clisa_Proj(nn.Module):
         B, T, n_dim = x.shape
         out = out.permute(0, 2, 1)
         # B, n_dim, T
-        out = out.unsqueeze(2)
-        out = self.avgpool(out)    # B*n_dim*1*t_pool
+        out = out.unsqueeze(1)
+        out = self.avgpool(out)    # B*1*n_dim*t_pool
         out = stratified_layerNorm(out, int(out.shape[0]/2))
         out = F.relu(self.timeConv1(out))
         out = F.relu(self.timeConv2(out))          #B*(n_dim*multiFact*multiFact)*1*t_pool
@@ -404,7 +404,7 @@ class DualModel_PL(pl.LightningModule):
         self.align_factor = cfg.align.factor
         self.tts_1 = None
         self.tts_2 = None
-        self.proj = Clisa_Proj(n_dim_in=cfg.align.n_channel_uni)
+        self.proj = Clisa_Proj(n_dim_in=1)
         self.MLP = MLP(input_dim=cfg.align.n_channel_uni, hidden_dim=128, out_dim=9)
         # self.dm = dm
         # self.train_dataset = dm.train_dataset
@@ -553,7 +553,7 @@ class DualModel_PL(pl.LightningModule):
         pair_loss = CEloss(logits, labels)
         return pair_loss
 
-    def loss_clisa_fea(self, fea, temperature=0.07):
+    def loss_clisa_fea(self, fea, temperature=0.3):
         N, C = fea.shape
         n_vid = N // 2
         save_img(fea[:, :300], 'fea_debug.png')
@@ -584,7 +584,7 @@ class DualModel_PL(pl.LightningModule):
         negatives = similarity_matrix[~labels.bool()].view(similarity_matrix.shape[0], -1)
         logits = torch.cat([negatives, positives], dim=1)
         logits = logits / temperature
-        # save_img(logits, 'logits_rearranged.png')
+        save_img(logits, 'logits_rearranged.png')
         labels = torch.ones(logits.shape[0], dtype=torch.long)*(logits.shape[1]-1)
         num_classes = labels.max().item() + 1
         # print(label)
@@ -689,6 +689,8 @@ class DualModel_PL(pl.LightningModule):
         x_2 = x_2[0]
         y_1 = y_1[0]
         y_2 = y_2[0]
+        x_1 = stratified_layerNorm(x_1, n_samples=x_1.shape[0]/2)
+        x_2 = stratified_layerNorm(x_2, n_samples=x_2.shape[0]/2)
         y_1 = torch.Tensor([self.cfg.data_1.class_proj[int(i.item())] for i in y_1]).long()
         y_2 = torch.Tensor([self.cfg.data_2.class_proj[int(i.item())] for i in y_2]).long()
         fea_1 = self.forward(x_1)
@@ -781,6 +783,8 @@ class DualModel_PL(pl.LightningModule):
         x_2 = x_2[0]
         y_1 = y_1[0]
         y_2 = y_2[0]
+        x_1 = stratified_layerNorm(x_1, n_samples=x_1.shape[0]/2)
+        x_2 = stratified_layerNorm(x_2, n_samples=x_2.shape[0]/2)
         y_1 = torch.Tensor([self.cfg.data_1.class_proj[int(i.item())] for i in y_1]).long()
         y_2 = torch.Tensor([self.cfg.data_2.class_proj[int(i.item())] for i in y_2]).long()
         fea_1 = self.forward(x_1)
@@ -790,8 +794,6 @@ class DualModel_PL(pl.LightningModule):
         fea_clisa_1 = self.proj(fea_1)
         fea_clisa_2 = self.proj(fea_2)
         
-        de = compute_de(fea_2)
-        logits = self.MLP(de)
         # save_img(logits, 'logits_debug.png')
         
         loss = 0

@@ -4,6 +4,7 @@ import torch.nn as nn
 from timm.models.layers import DropPath
 from torchtune.modules import RotaryPositionalEmbeddings as RoPE
 from utils_new import stratified_layerNorm
+import torch.nn.functional as F
 # num_heads = 2
 # input_resolution = (64, 64)
 # block = MLLABlock(dim, input_resolution, num_heads, mlp_ratio=4., qkv_bias=True, drop=0., drop_path=0.,
@@ -206,8 +207,6 @@ class MLLA_BasicLayer(nn.Module):
         # self.conv_in = conv_in(n_filter=n_filter, patch_size=in_dim, filterLen=filterLen)
         self.read_in = nn.Linear(in_dim, hidden_dim)
         self.read_out = nn.Linear(self.hidden_dim, out_dim)
-        self.act = nn.ReLU()
-        
         # build blocks
         self.blocks = nn.ModuleList([
             MLLA_EEG_Block(dim=self.hidden_dim, num_heads=num_heads, qkv_bias=qkv_bias, drop_path=drop_path)
@@ -219,14 +218,11 @@ class MLLA_BasicLayer(nn.Module):
         #         print(f"Gradient of {name}: {param.grad}")
         # print(f'Before MLLA: mean={torch.mean(x)}, std={torch.std(x)}')
         # x = self.conv_in(x)
-        x = self.act(self.read_in(x))
-        x = stratified_layerNorm(x, n_samples=x.shape[0]/2)
+        x = F.relu(self.read_in(x))
         for blk in self.blocks:
             x = blk(x)
             # print(f'In MLLA: mean={torch.mean(x)}, std={torch.std(x)}')
-            
-        x = self.act(self.read_out(x))
-        x = stratified_layerNorm(x, n_samples=x.shape[0]/2)
+        x = F.relu(self.read_out(x))
         # print(f'After MLLA: mean={torch.mean(x)}, std={torch.std(x)}')
         
         return x
