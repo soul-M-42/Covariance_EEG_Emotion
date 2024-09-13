@@ -70,7 +70,7 @@ class EEGSampler:
         return ind_this
 
     def __len__(self):
-        return self.batchsize
+        return self.n_pairs
 
     def __iter__(self):
         # for pair1 in pairs_1:
@@ -87,9 +87,10 @@ class EEGSampler:
         #         # Yield a tuple containing both indices
         #         yield list(idx_1.astype(int)), list(idx_2.astype(int))
 
-        for i in range(self.batchsize):
-            pair1 = self.pairs_1[i % self.n_pairs_1]
-            pair2 = self.pairs_2[i % self.n_pairs_2]
+        for i in range(self.n_pairs):
+            index = random.randint(0, self.batchsize-1)
+            pair1 = self.pairs_1[index % self.n_pairs_1]
+            pair2 = self.pairs_2[index % self.n_pairs_2]
             idx_1 = np.array([])
             idx_2 = np.array([])
             idx_1 = np.concatenate((self.get_sample(set=self.set1, subsession=pair1[0]),
@@ -231,10 +232,9 @@ class PairedDataset(Dataset):
 #         return ZipLongestRepeat(self.valloader_1, self.valloader_2)
 
 class DualDataModule(pl.LightningDataModule):
-    def __init__(self, data1, data2, fold, n_folds, batch_size=64, n_pairs=128, num_workers=8, device='cpu'):
+    def __init__(self, data1, data2, fold, n_folds, n_pairs=128, num_workers=8, device='cpu'):
         super().__init__()
         self.device = device
-        self.batch_size = batch_size
         self.n_pairs = n_pairs
         self.num_workers = num_workers
         self.data1 = data1

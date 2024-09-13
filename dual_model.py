@@ -331,8 +331,11 @@ class channel_MLLA(nn.Module):
             out_channel_i = self.encoder(channel_data)
             outputs.append(out_channel_i)
         outputs = torch.stack(outputs, dim=1)
-        outputs = outputs.permute(0, 1, 3, 2)
-        outputs = outputs.reshape((outputs.shape[0], -1, outputs.shape[-1]))
+        # [B, C, T, out_dim]
+        # outputs = outputs.reshape((outputs.shape[0], -1, outputs.shape[-1]))
+        # outputs = outputs.unsqueeze(dim=1)
+        # outputs = stratified_layerNorm(outputs, n_samples=outputs.shape[0]/2)
+        # outputs = outputs.squeeze(dim=1)
         # [batch, channel*n_filter, time]
         return outputs
 
@@ -344,27 +347,33 @@ class Channel_Alignment(nn.Module):
         # 30 * 60
 
     def forward(self, input):
-        # input.shape = [batch, channel*n_filter, time']
-        # 60(ch) * 30 * 1 * 2750
-        # 30(ch) * 30 * 1 * 2750
-        out = torch.permute(input, (0, 2, 1))
-        # [batch, time', channel*n_filter]
+        # [B, C, T, out_dim]
+        out = input.permute(0, 2, 3, 1)
+        # [B, T, out_dim, C]
         out = F.relu(torch.matmul(out, self.A))
         return out
 
 class Clisa_Proj(nn.Module):
-    def __init__(self, n_dim_in, avgPoolLen=3, multiFact=2, timeSmootherLen=6):
+    def __init__(self, n_dim_in, avgPoolLen=3, multiFact=2, timeSmootherLen=3):
         super().__init__()
         self.avgpool = nn.AvgPool2d((1, avgPoolLen))
-        self.timeConv1 = nn.Conv2d(n_dim_in, n_dim_in * multiFact, (1, timeSmootherLen))
+        self.timeConv1 = nn.Conv2d(n_dim_in, n_dim_in * multiFact, (1, timeSmootherLen), groups=n_dim_in)
         self.timeConv2 = nn.Conv2d(n_dim_in * multiFact, n_dim_in * multiFact * multiFact, (1, timeSmootherLen), groups=n_dim_in * multiFact)
         
     def forward(self, x):
         out = x
-        B, T, n_dim = x.shape
-        out = out.permute(0, 2, 1)
-        # B, n_dim, T
-        out = out.unsqueeze(1)
+        B, T, out_dim, C = x.shape
+        out = out.permute(0, 3, 2, 1)
+        # B, C, out_dim, T
+        # for c_i in range(C):
+        #     data_channel_i = out[:, c_i, :, :].unsqueeze(1)
+        #     data_channel_i = self.avgpool(data_channel_i)    # B*1*n_dim*t_pool
+        #     data_channel_i = stratified_layerNorm(data_channel_i, int(data_channel_i.shape[0]/2))
+        #     data_channel_i = F.relu(self.timeConv1(data_channel_i))
+        #     data_channel_i = F.relu(self.timeConv2(data_channel_i))          #B*(n_dim*multiFact*multiFact)*1*t_pool
+        #     data_channel_i = stratified_layerNorm(data_channel_i, int(data_channel_i.shape[0]/2))     
+        #     print(data_channel_i.shape)
+
         out = self.avgpool(out)    # B*1*n_dim*t_pool
         out = stratified_layerNorm(out, int(out.shape[0]/2))
         out = F.relu(self.timeConv1(out))
@@ -389,8 +398,8 @@ class DualModel_PL(pl.LightningModule):
             n_filter=cfg.channel_encoder.n_filter,
             filterLen=cfg.channel_encoder.filterLen)
         # self.channelwiseEncoder = channelwiseEncoder(n_filter=cfg.channel_encoder.out_dim, standard_channels=cfg.data_1.channels)
-        self.alignmentModule_1 = Channel_Alignment(cfg.data_1.n_channs*cfg.channel_encoder.out_dim, cfg.align.n_channel_uni)
-        self.alignmentModule_2 = Channel_Alignment(cfg.data_2.n_channs*cfg.channel_encoder.out_dim, cfg.align.n_channel_uni)
+        self.alignmentModule_1 = Channel_Alignment(cfg.data_1.n_channs, cfg.align.n_channel_uni)
+        self.alignmentModule_2 = Channel_Alignment(cfg.data_2.n_channs, cfg.align.n_channel_uni)
         # self.decoder = ConvOut(in_shape=cfg.align.n_channel_uni)
         # self.decoder = ConvOut_Euclidean(out_channels=64)
         self.proto = None
@@ -404,7 +413,7 @@ class DualModel_PL(pl.LightningModule):
         self.align_factor = cfg.align.factor
         self.tts_1 = None
         self.tts_2 = None
-        self.proj = Clisa_Proj(n_dim_in=1)
+        self.proj = Clisa_Proj(n_dim_in=cfg.align.n_channel_uni)
         self.MLP = MLP(input_dim=cfg.align.n_channel_uni, hidden_dim=128, out_dim=9)
         # self.dm = dm
         # self.train_dataset = dm.train_dataset
@@ -556,7 +565,7 @@ class DualModel_PL(pl.LightningModule):
     def loss_clisa_fea(self, fea, temperature=0.3):
         N, C = fea.shape
         n_vid = N // 2
-        save_img(fea[:, :300], 'fea_debug.png')
+        save_img(fea, 'fea_debug.png')
         similarity_matrix = torch.matmul(fea, fea.T)
         save_img(similarity_matrix, 'dis_pair.png')
         
