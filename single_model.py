@@ -703,26 +703,24 @@ class DualModel_PL(pl.LightningModule):
     
     # remain to be implemented
     def training_step(self, batch, batch_idx):
-        x_1, y_1, x_2, y_2 = batch
-        x_1 = x_1[0]
-        x_2 = x_2[0]
-        y_1 = y_1[0]
-        y_2 = y_2[0]
+        x_1, y_1 = batch
+        save_img(x_1.reshape(x_1.shape[0] * x_1.shape[2], -1),'eeg_old.png')
+        # x_2, y_2 = batch
         x_1 = stratified_layerNorm(x_1, n_samples=x_1.shape[0]/2)
-        x_2 = stratified_layerNorm(x_2, n_samples=x_2.shape[0]/2)
+        # x_2 = stratified_layerNorm(x_2, n_samples=x_2.shape[0]/2)
         y_1 = torch.Tensor([self.cfg.data_1.class_proj[int(i.item())] for i in y_1]).long()
-        y_2 = torch.Tensor([self.cfg.data_2.class_proj[int(i.item())] for i in y_2]).long()
+        # y_2 = torch.Tensor([self.cfg.data_2.class_proj[int(i.item())] for i in y_2]).long()
         fea_1 = self.forward(x_1)
-        fea_2 = self.forward(x_2)
+        # fea_2 = self.forward(x_2)
         
         fea_1 = self.alignmentModule_1(fea_1)
-        fea_2 = self.alignmentModule_2(fea_2)
+        # fea_2 = self.alignmentModule_2(fea_2)
         fea_clisa_1 = self.proj(fea_1)
-        fea_clisa_2 = self.proj(fea_2)
+        # fea_clisa_2 = self.proj(fea_2)
         
         loss = 0
         loss_1 = 0
-        loss_2 = 0
+        # loss_2 = 0
 
         # 1. proto_loss
         if self.cfg.align.proto_loss:
@@ -754,17 +752,17 @@ class DualModel_PL(pl.LightningModule):
             # loss_clisa_1 = self.loss_clisa(cov_1, y_1)
             # loss_clisa_2 = self.loss_clisa(cov_2, y_2)
             loss_clisa_1, acc1_1, acc5_1 = self.loss_clisa_fea(fea_clisa_1)
-            loss_clisa_2, acc1_2, acc5_2 = self.loss_clisa_fea(fea_clisa_2)
+            # loss_clisa_2, acc1_2, acc5_2 = self.loss_clisa_fea(fea_clisa_2)
             loss_1 = loss_1 + loss_clisa_1
-            loss_2 = loss_2 + loss_clisa_2
-            loss = loss + loss_clisa_1 + loss_clisa_2
+            # loss_2 = loss_2 + loss_clisa_2
+            loss = loss + loss_clisa_1
             self.log_dict({
                     'loss_clisa_1/train': loss_clisa_1, 
-                    'loss_clisa_2/train': loss_clisa_2, 
+                    # 'loss_clisa_2/train': loss_clisa_2, 
                     'acc1_1/train': acc1_1, 
-                    'acc1_2/train': acc1_2,
+                    # 'acc1_2/train': acc1_2,
                     'acc5_1/train': acc5_1, 
-                    'acc5_2/train': acc5_2,
+                    # 'acc5_2/train': acc5_2,
                     },
                     logger=self.is_logger,
                     on_step=False, on_epoch=True, prog_bar=True)
@@ -799,21 +797,18 @@ class DualModel_PL(pl.LightningModule):
         return loss
     
     def validation_step(self, batch, batch_idx):
-        x_1, y_1, x_2, y_2 = batch
-        x_1 = x_1[0]
-        x_2 = x_2[0]
-        y_1 = y_1[0]
-        y_2 = y_2[0]
+        x_1, y_1 = batch
+        # x_2, y_2 = batch
         x_1 = stratified_layerNorm(x_1, n_samples=x_1.shape[0]/2)
-        x_2 = stratified_layerNorm(x_2, n_samples=x_2.shape[0]/2)
+        # x_2 = stratified_layerNorm(x_2, n_samples=x_2.shape[0]/2)
         y_1 = torch.Tensor([self.cfg.data_1.class_proj[int(i.item())] for i in y_1]).long()
-        y_2 = torch.Tensor([self.cfg.data_2.class_proj[int(i.item())] for i in y_2]).long()
+        # y_2 = torch.Tensor([self.cfg.data_2.class_proj[int(i.item())] for i in y_2]).long()
         fea_1 = self.forward(x_1)
-        fea_2 = self.forward(x_2)
+        # fea_2 = self.forward(x_2)
         fea_1 = self.alignmentModule_1(fea_1)
-        fea_2 = self.alignmentModule_2(fea_2)
+        # fea_2 = self.alignmentModule_2(fea_2)
         fea_clisa_1 = self.proj(fea_1)
-        fea_clisa_2 = self.proj(fea_2)
+        # fea_clisa_2 = self.proj(fea_2)
         
         # save_img(logits, 'logits_debug.png')
         
@@ -851,17 +846,17 @@ class DualModel_PL(pl.LightningModule):
             # loss_clisa_1 = self.loss_clisa(cov_1, y_1)
             # loss_clisa_2 = self.loss_clisa(cov_2, y_2)
             loss_clisa_1, acc1_1, acc5_1 = self.loss_clisa_fea(fea_clisa_1)
-            loss_clisa_2, acc1_2, acc5_2 = self.loss_clisa_fea(fea_clisa_2)
+            # loss_clisa_2, acc1_2, acc5_2 = self.loss_clisa_fea(fea_clisa_2)
             loss_1 = loss_1 + loss_clisa_1
-            loss_2 = loss_2 + loss_clisa_2
-            loss = loss + loss_clisa_1 + loss_clisa_2
+            # loss_2 = loss_2 + loss_clisa_2
+            loss = loss + loss_clisa_1
             self.log_dict({
                     'loss_clisa_1/val': loss_clisa_1, 
-                    'loss_clisa_2/val': loss_clisa_2, 
+                    # 'loss_clisa_2/val': loss_clisa_2, 
                     'acc1_1/val': acc1_1, 
-                    'acc1_2/val': acc1_2,
+                    # 'acc1_2/val': acc1_2,
                     'acc5_1/val': acc5_1, 
-                    'acc5_2/val': acc5_2,
+                    # 'acc5_2/val': acc5_2,
                     },
                     logger=self.is_logger,
                     on_step=False, on_epoch=True, prog_bar=True)

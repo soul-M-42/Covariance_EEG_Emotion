@@ -16,9 +16,9 @@ seed: 7
 
 channel_encoder:
   patch_size: 32
-  hidden_dim: 128
+  hidden_dim: 64
   out_dim: 32
-  depth: 2
+  depth: 1
   patch_stride: 16
   drop_path: 0.1
   n_filter: 16
@@ -27,7 +27,7 @@ channel_encoder:
 align:
   device: gpu
   factor: 0.05
-  n_channel_uni: 60
+  n_channel_uni: 30
   to_riem: False
   proto_loss: False
   align_loss: False
@@ -40,7 +40,7 @@ log:
   # logpath: 'log'
   # logpath: 'log'
   run: 4
-  proj_name: 'Clisa_Stratified_timeLen=${data_1.timeLen}_CDA=${align.align_loss}_Riem=${align.to_riem}_patchSize=${channel_encoder.patch_size}_patchStride=${channel_encoder.patch_stride}_hidden_dim=${channel_encoder.hidden_dim}_out_dim=${channel_encoder.out_dim}_depth=${channel_encoder.depth}_channelUni=${align.n_channel_uni}_wd=${train.wd}_alignFactor=${align.factor}'
+  proj_name: 'Clisa_Dual_timeLen=${data_1.timeLen}_CDA=${align.align_loss}_Riem=${align.to_riem}_patchSize=${channel_encoder.patch_size}_patchStride=${channel_encoder.patch_stride}_hidden_dim=${channel_encoder.hidden_dim}_out_dim=${channel_encoder.out_dim}_depth=${channel_encoder.depth}_channelUni=${align.n_channel_uni}_wd=${train.wd}_alignFactor=${align.factor}'
   # CDA for Cross Dataset Align
 
   exp_name: 'hess'
@@ -50,7 +50,7 @@ log:
 
 train:
   n_fold: 7
-  n_pairs: 64
+  n_pairs: 512
   gpus: [0]
   iftest: False
   # n_subs: ${data.n_subs}

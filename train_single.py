@@ -9,7 +9,7 @@ import pytorch_lightning as pl
 import os
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from dual_dataloader import DualDataModule
-from dual_model import DualModel_PL
+from single_model import DualModel_PL
 from data.pl_datamodule import EEGDataModule
 import logging
 from pytorch_lightning.loggers import TensorBoardLogger
@@ -37,10 +37,24 @@ def run_pipeline(cfg: DictConfig):
                 logger = TensorBoardLogger(save_dir=save_dir, name=run_name)
         # dm = MultiEEGDataModule(cfg.data_1, cfg.data_2, fold, n_folds, batch_size=cfg.train.batch_size, num_workers=cfg.train.num_workers,
         #                         device=cfg.align.device)
-        dm = DualDataModule(cfg.data_1, cfg.data_2, fold, n_folds, num_workers=cfg.train.num_workers,
-                            n_pairs=cfg.train.n_pairs,
-                            # device=cfg.align.device,
-        )
+        
+        n_per = round(cfg.data_1.n_subs / n_folds)
+        if n_folds == 1:
+            val_subs = []
+        elif fold < n_folds - 1:
+            val_subs = np.arange(n_per * fold, n_per * (fold + 1))
+        else:
+            val_subs = np.arange(n_per * fold, cfg.data_1.n_subs)            
+        train_subs = list(set(np.arange(cfg.data_1.n_subs)) - set(val_subs))
+        if len(val_subs) == 1:
+            val_subs = list(val_subs) + train_subs
+        print('train_subs:', train_subs)
+        print('val_subs:', val_subs)
+        n_vids = 28
+        train_vids = np.arange(n_vids)
+        val_vids = np.arange(n_vids)
+        dm = EEGDataModule(cfg.data_1, train_subs, val_subs, train_vids, val_vids,
+                           True, cfg.train.num_workers)
         dm.setup("fit")
 
     # 2. define channel_specific encoder
