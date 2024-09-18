@@ -419,7 +419,7 @@ class DualModel_PL(pl.LightningModule):
         self.tts_1 = None
         self.tts_2 = None
         self.proj = Clisa_Proj(n_dim_in=cfg.align.n_channel_uni)
-        self.MLP = MLP(input_dim=cfg.align.n_channel_uni, hidden_dim=128, out_dim=9)
+        self.MLP = MLP(input_dim=180, hidden_dim=64, out_dim=9)
         # self.dm = dm
         # self.train_dataset = dm.train_dataset
         # self.train_set_1 = self.train_dataset.dataset_a
@@ -531,7 +531,7 @@ class DualModel_PL(pl.LightningModule):
         mat_b = cov.unsqueeze(1).repeat(1, N, 1, 1)  # [N, N, C, C]
         similarity_matrix = -self.frobenius_distance(mat_a, mat_b)
         
-        save_img(similarity_matrix, 'dis_pair.png')
+        # save_img(similarity_matrix, 'dis_pair.png')
         # similarity_matrix = torch.zeros((cov.shape[0], cov.shape[0]))
         labels = torch.cat([torch.arange(n_vid) for i in range(2)], dim=0)
         labels = (labels.unsqueeze(0) == labels.unsqueeze(1)).float()
@@ -556,12 +556,12 @@ class DualModel_PL(pl.LightningModule):
         positives = similarity_matrix[labels.bool()].view(labels.shape[0], -1)
         negatives = similarity_matrix[~labels.bool()].view(similarity_matrix.shape[0], -1)
         logits = torch.cat([negatives, positives], dim=1)
-        save_img(logits, 'logits_rearranged.png')
+        # save_img(logits, 'logits_rearranged.png')
         labels = torch.ones(logits.shape[0], dtype=torch.long)*(logits.shape[1]-1)
         num_classes = labels.max().item() + 1
         # print(label)
         label_onehot = torch.nn.functional.one_hot(labels, num_classes=num_classes)
-        save_img(label_onehot, 'labels_rearranged.png')
+        # save_img(label_onehot, 'labels_rearranged.png')
 
         CEloss = nn.CrossEntropyLoss()
         pair_loss = CEloss(logits, labels)
@@ -570,9 +570,9 @@ class DualModel_PL(pl.LightningModule):
     def loss_clisa_fea(self, fea, temperature=0.3):
         N, C = fea.shape
         n_vid = N // 2
-        save_img(fea, 'fea_debug.png')
+        # save_img(fea, 'fea_debug.png')
         similarity_matrix = torch.matmul(fea, fea.T)
-        save_img(similarity_matrix, 'dis_pair.png')
+        # save_img(similarity_matrix, 'dis_pair.png')
         
         # similarity_matrix = torch.zeros((cov.shape[0], cov.shape[0]))
         labels = torch.cat([torch.arange(n_vid) for i in range(2)], dim=0)
@@ -598,7 +598,7 @@ class DualModel_PL(pl.LightningModule):
         negatives = similarity_matrix[~labels.bool()].view(similarity_matrix.shape[0], -1)
         logits = torch.cat([negatives, positives], dim=1)
         logits = logits / temperature
-        save_img(logits, 'logits_rearranged.png')
+        # save_img(logits, 'logits_rearranged.png')
         labels = torch.ones(logits.shape[0], dtype=torch.long)*(logits.shape[1]-1)
         num_classes = labels.max().item() + 1
         # print(label)
@@ -651,16 +651,19 @@ class DualModel_PL(pl.LightningModule):
         return loss_ce, acc
 
     def loss_MLP(self, feature, labels):
-        print(feature.shape)
+        # print(feature.shape)
         B, T, n_dim, n_channel = feature.shape
         feature = feature.permute(0, 2, 3, 1)
         feature = feature.reshape(B, n_dim*n_channel, T)
         feature = F.avg_pool1d(feature, kernel_size=T // 5)
-        feature = feature.reshape(B, -1)
+        feature = F.avg_pool1d(feature, kernel_size=feature.shape[-1])
         # print(feature.shape)
+        feature = feature.reshape(B, -1)
+        # feature = feature.detach()
         logits = self.MLP(feature)
         CEloss = torch.nn.CrossEntropyLoss()
         loss = CEloss(logits, labels)
+        save_img(logits, 'MLP_logits.png')
         acc = self.top1_accuracy(logits, labels)
         return loss, acc
     
