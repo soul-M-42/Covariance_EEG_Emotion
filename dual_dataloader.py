@@ -202,16 +202,16 @@ class DualDataModule(pl.LightningDataModule):
 
     def setup(self, stage=None):
         if stage == 'fit' or stage is None:
-            self.trainset_1 = EEG_Dataset(self.data1, train_subs=self.train_subs_1, mods='train', sliced=True)
-            self.trainset_2 = EEG_Dataset(self.data2, train_subs=self.train_subs_2, mods='train', sliced=True)
-            self.valset_1 = EEG_Dataset(self.data1, val_subs=self.val_subs_1, mods='val', sliced=True)
-            self.valset_2 = EEG_Dataset(self.data2, val_subs=self.val_subs_2, mods='val', sliced=True)
+            self.trainset_1 = EEG_Dataset(self.data1, train_subs=self.train_subs_1, mods='train', sliced=False)
+            self.trainset_2 = EEG_Dataset(self.data2, train_subs=self.train_subs_2, mods='train', sliced=False)
+            self.valset_1 = EEG_Dataset(self.data1, val_subs=self.val_subs_1, mods='val', sliced=False)
+            self.valset_2 = EEG_Dataset(self.data2, val_subs=self.val_subs_2, mods='val', sliced=False)
             self.trainset = PairedDataset(self.trainset_1, self.trainset_2)
             self.valset = PairedDataset(self.valset_1, self.valset_2)
 
         if stage == 'validate':
-            self.valset_1 = EEG_Dataset(self.data1, val_subs=self.val_subs_1, mods='val', sliced=True)
-            self.valset_2 = EEG_Dataset(self.data2, val_subs=self.val_subs_2, mods='val', sliced=True)
+            self.valset_1 = EEG_Dataset(self.data1, val_subs=self.val_subs_1, mods='val', sliced=False)
+            self.valset_2 = EEG_Dataset(self.data2, val_subs=self.val_subs_2, mods='val', sliced=False)
             self.valset = PairedDataset(self.valset_1, self.valset_2)
 
     def train_dataloader(self) -> torch.Any:

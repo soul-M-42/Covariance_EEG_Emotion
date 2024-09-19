@@ -659,7 +659,7 @@ class DualModel_PL(pl.LightningModule):
         feature = F.avg_pool1d(feature, kernel_size=feature.shape[-1])
         # print(feature.shape)
         feature = feature.reshape(B, -1)
-        # feature = feature.detach()
+        feature = feature.detach()
         logits = self.MLP(feature)
         CEloss = torch.nn.CrossEntropyLoss()
         loss = CEloss(logits, labels)

@@ -2,7 +2,7 @@
 defaults:
   - _self_
   # - data_1: SEEDV_small
-  - data_1: FACED_blink_only_small
+  - data_1: SEED
   # - data_1: SEEDV_small
   - data_2: FACED_blink_only_small
   # - data_2: FACED_blink_only_small
@@ -32,15 +32,15 @@ align:
   proto_loss: False
   align_loss: False
   clisa_loss: True
-  MLP_loss: False
+  MLP_loss: True
 
 log:
-  is_logger: True
+  is_logger: False
   logpath: 'log'
   # logpath: 'log'
   # logpath: 'log'
   run: 4
-  proj_name: 'Clisa_Single_timeLen=${data_1.timeLen}_CDA=${align.align_loss}_Riem=${align.to_riem}_patchSize=${channel_encoder.patch_size}_patchStride=${channel_encoder.patch_stride}_hidden_dim=${channel_encoder.hidden_dim}_out_dim=${channel_encoder.out_dim}_depth=${channel_encoder.depth}_channelUni=${align.n_channel_uni}_wd=${train.wd}_alignFactor=${align.factor}'
+  proj_name: 'SEED_test_timeLen=${data_1.timeLen}_CDA=${align.align_loss}_Riem=${align.to_riem}_patchSize=${channel_encoder.patch_size}_patchStride=${channel_encoder.patch_stride}_hidden_dim=${channel_encoder.hidden_dim}_out_dim=${channel_encoder.out_dim}_depth=${channel_encoder.depth}_channelUni=${align.n_channel_uni}_wd=${train.wd}_alignFactor=${align.factor}'
   # CDA for Cross Dataset Align
 
   exp_name: 'hess'
