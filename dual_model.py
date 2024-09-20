@@ -299,10 +299,8 @@ def to_patch(data, patch_size=50, stride=25):
     return patches
 
 class channel_MLLA(nn.Module):
-    def __init__(self, standard_channels, patch_size, hidden_dim, out_dim, depth, patch_stride, drop_path, n_filter, filterLen):
+    def __init__(self, patch_size, hidden_dim, out_dim, depth, patch_stride, drop_path, n_filter, filterLen):
         super().__init__()
-        self.standard_channels = standard_channels
-        self.n_channels = len(standard_channels)
         self.patch_size = patch_size
         self.patch_stride = patch_stride
         self.avgpool = nn.AdaptiveAvgPool1d(1)
@@ -393,7 +391,6 @@ class DualModel_PL(pl.LightningModule):
         super().__init__()
         self.cfg = cfg
         self.channelwiseEncoder = channel_MLLA(
-            standard_channels=cfg.data_1.channels, 
             patch_size=cfg.channel_encoder.patch_size,
             hidden_dim=cfg.channel_encoder.hidden_dim,
             out_dim=cfg.channel_encoder.out_dim,
@@ -419,7 +416,8 @@ class DualModel_PL(pl.LightningModule):
         self.tts_1 = None
         self.tts_2 = None
         self.proj = Clisa_Proj(n_dim_in=cfg.align.n_channel_uni)
-        self.MLP = MLP(input_dim=180, hidden_dim=64, out_dim=9)
+        self.MLP_1 = MLP(input_dim=180, hidden_dim=64, out_dim=cfg.data_1.n_class)
+        self.MLP_2 = MLP(input_dim=180, hidden_dim=64, out_dim=cfg.data_2.n_class)
         # self.dm = dm
         # self.train_dataset = dm.train_dataset
         # self.train_set_1 = self.train_dataset.dataset_a
@@ -650,7 +648,7 @@ class DualModel_PL(pl.LightningModule):
 
         return loss_ce, acc
 
-    def loss_MLP(self, feature, labels):
+    def loss_MLP(self, feature, labels, MLP_):
         # print(feature.shape)
         B, T, n_dim, n_channel = feature.shape
         feature = feature.permute(0, 2, 3, 1)
@@ -660,7 +658,7 @@ class DualModel_PL(pl.LightningModule):
         # print(feature.shape)
         feature = feature.reshape(B, -1)
         feature = feature.detach()
-        logits = self.MLP(feature)
+        logits = MLP_(feature)
         CEloss = torch.nn.CrossEntropyLoss()
         loss = CEloss(logits, labels)
         save_img(logits, 'MLP_logits.png')
@@ -713,8 +711,8 @@ class DualModel_PL(pl.LightningModule):
         y_2 = y_2[0]
         x_1 = stratified_layerNorm(x_1, n_samples=x_1.shape[0]/2)
         x_2 = stratified_layerNorm(x_2, n_samples=x_2.shape[0]/2)
-        y_1 = torch.Tensor([self.cfg.data_1.class_proj[int(i.item())] for i in y_1]).long()
-        y_2 = torch.Tensor([self.cfg.data_2.class_proj[int(i.item())] for i in y_2]).long()
+        # y_1 = torch.Tensor([self.cfg.data_1.class_proj[int(i.item())] for i in y_1]).long()
+        # y_2 = torch.Tensor([self.cfg.data_2.class_proj[int(i.item())] for i in y_2]).long()
         fea_1 = self.forward(x_1)
         fea_2 = self.forward(x_2)
         
@@ -775,8 +773,8 @@ class DualModel_PL(pl.LightningModule):
         
         # 3. emotion MLP classification
         if self.cfg.align.MLP_loss:
-            loss_MLP_1, acc_MLP_1 = self.loss_MLP(fea_1, y_1)
-            loss_MLP_2, acc_MLP_2 = self.loss_MLP(fea_2, y_2)
+            loss_MLP_1, acc_MLP_1 = self.loss_MLP(fea_1, y_1, self.MLP_1)
+            loss_MLP_2, acc_MLP_2 = self.loss_MLP(fea_2, y_2, self.MLP_2)
             self.log_dict({
                 'loss_MLP_1/train': loss_MLP_1, 
                 'loss_MLP_2/train': loss_MLP_2, 
@@ -809,8 +807,8 @@ class DualModel_PL(pl.LightningModule):
         y_2 = y_2[0]
         x_1 = stratified_layerNorm(x_1, n_samples=x_1.shape[0]/2)
         x_2 = stratified_layerNorm(x_2, n_samples=x_2.shape[0]/2)
-        y_1 = torch.Tensor([self.cfg.data_1.class_proj[int(i.item())] for i in y_1]).long()
-        y_2 = torch.Tensor([self.cfg.data_2.class_proj[int(i.item())] for i in y_2]).long()
+        # y_1 = torch.Tensor([self.cfg.data_1.class_proj[int(i.item())] for i in y_1]).long()
+        # y_2 = torch.Tensor([self.cfg.data_2.class_proj[int(i.item())] for i in y_2]).long()
         fea_1 = self.forward(x_1)
         fea_2 = self.forward(x_2)
         fea_1 = self.alignmentModule_1(fea_1)
@@ -872,8 +870,8 @@ class DualModel_PL(pl.LightningModule):
         
         # 3. DE-based MLP classification
         if self.cfg.align.MLP_loss:
-            loss_MLP_1, acc_MLP_1 = self.loss_MLP(fea_1, y_1)
-            loss_MLP_2, acc_MLP_2 = self.loss_MLP(fea_2, y_2)
+            loss_MLP_1, acc_MLP_1 = self.loss_MLP(fea_1, y_1, self.MLP_1)
+            loss_MLP_2, acc_MLP_2 = self.loss_MLP(fea_2, y_2, self.MLP_2)
             self.log_dict({
                 'loss_MLP_1/val': loss_MLP_1, 
                 'loss_MLP_2/val': loss_MLP_2, 
