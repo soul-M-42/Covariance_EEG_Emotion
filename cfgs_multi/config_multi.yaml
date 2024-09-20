@@ -1,0 +1,103 @@
+
+defaults:
+  - _self_
+  # - data_1: SEEDV_small
+  - data@data_1: SEED
+  # - data_1: SEEDV_small
+  - data@data_2: SEEDV
+  # - data_2: FACED_blink_only_small
+  # - data_2: SEEDV_small
+  - data@data_3: FACED_blink_only_small
+  # - data_2: FACED_blink_only_small
+  # - data_2: SEEDV_small
+  # WARNING: REMEMBER TO CHANGE train.n_fold WHEN CHANGE DATASET/DATASET_SMALL
+  # SMALL: fold=3
+  # NORMAL: fold=16
+  - model: cnn_att
+
+seed: 7
+
+channel_encoder:
+  patch_size: 32
+  hidden_dim: 128
+  out_dim: 3
+  depth: 1
+  patch_stride: 16
+  drop_path: 0.1
+  n_filter: 16
+  filterLen: 10
+
+align:
+  device: gpu
+  factor: 0.05
+  n_channel_uni: 60
+  to_riem: False
+  proto_loss: False
+  align_loss: False
+  clisa_loss: True
+  MLP_loss: True
+
+log:
+  is_logger: True
+  logpath: 'log_trinity'
+  # logpath: 'log'
+  # logpath: 'log'
+  run: 4
+  proj_name: 'Trinity_timeLen=${data_1.timeLen}_CDA=${align.align_loss}_Riem=${align.to_riem}_patchSize=${channel_encoder.patch_size}_patchStride=${channel_encoder.patch_stride}_hidden_dim=${channel_encoder.hidden_dim}_out_dim=${channel_encoder.out_dim}_depth=${channel_encoder.depth}_channelUni=${align.n_channel_uni}_wd=${train.wd}_alignFactor=${align.factor}'
+  # CDA for Cross Dataset Align
+
+  exp_name: 'hess'
+
+  # cp_dir: ext/mlp cp save path, different dataset will be saved in separate subfolder 
+  cp_dir: '/mnt/data/model_weights/DUAL_cp'   
+
+train:
+  n_fold: 7
+  n_pairs: 256
+  gpus: [0]
+  iftest: False
+  # n_subs: ${data.n_subs}
+  lr: 2e-4
+  wd: 0.001
+  loss_temp: 0.07
+  max_epochs: 500
+  min_epochs: 10
+  patience: 30
+  restart_times: ${train.max_epochs}  # scheduler
+  val_sub_p: 0.8
+  grad_accumulation: 1
+  num_workers: 127
+
+
+mlp:
+  # fea_dim: 256 #${model.n_timeFilters*model.n_msFilters*4}
+  hidden_dim: 128
+  out_dim: ${data.n_class}
+  lr: 0.0005  #0.0005
+  wd: 0.0022   #0.001-0.005
+  max_epochs: 100
+  min_epochs: 30
+  patience: 30
+  gpus: ${train.gpus}
+  num_workers: ${train.num_workers}
+  batch_size: 256
+
+ext_fea:
+  # cp_dir: '/mnt/data/model_weights/grm/SEEDV/runs/2024-04-23/03-38-42_/22_11_5fold_run1/checkpoints/'
+  # cp_dir: '/mnt/data/model_weights/grm/SEEDV_new2/runs/2024-05-06/21-21-55_/10_5_run1/checkpoints/'
+  # cp_dir: '/mnt/data/model_weights/grm/clisa_run/SEED/2024-05-12/16-41-53_run6_data=SEED,log.proj_name=SEED,log.run=6,train.gpus=[0],train.valid_method=loo/ext_checkpoints'
+  # cp_dir: '/mnt/data/model_weights/grm/clisa_run/FACED/2024-05-13/09-39-30_run11/ext_checkpoints/'
+  # save_dir: '/mnt/data/model_weights/grm/SEEDV/sliced_data/sliced_len22_step11/fea_5fold_run1'
+  # save_dir: '/mnt/data/model_weights/grm/SEEDV-NEW/ext_fea/fea'
+  normTrain: True
+  batch_size: 256
+  mode: 'me'
+  rn_decay: 0.990
+  use_pretrain: True
+
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: ./clisa_run/${log.proj_name}/${now:%Y-%m-%d}/${now:%H-%M-%S}_run${log.run}
