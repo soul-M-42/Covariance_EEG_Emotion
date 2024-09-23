@@ -43,7 +43,7 @@ log:
   # logpath: 'log'
   # logpath: 'log'
   run: 4
-  proj_name: 'Trinity_timeLen=${data_1.timeLen}_CDA=${align.align_loss}_Riem=${align.to_riem}_patchSize=${channel_encoder.patch_size}_patchStride=${channel_encoder.patch_stride}_hidden_dim=${channel_encoder.hidden_dim}_out_dim=${channel_encoder.out_dim}_depth=${channel_encoder.depth}_channelUni=${align.n_channel_uni}_wd=${train.wd}_alignFactor=${align.factor}'
+  proj_name: 'Trinity_LDS_timeLen=${data_1.timeLen}_CDA=${align.align_loss}_Riem=${align.to_riem}_patchSize=${channel_encoder.patch_size}_patchStride=${channel_encoder.patch_stride}_hidden_dim=${channel_encoder.hidden_dim}_out_dim=${channel_encoder.out_dim}_depth=${channel_encoder.depth}_channelUni=${align.n_channel_uni}_wd=${train.wd}_alignFactor=${align.factor}'
   # CDA for Cross Dataset Align
 
   exp_name: 'hess'
@@ -58,7 +58,7 @@ train:
   iftest: False
   # n_subs: ${data.n_subs}
   lr: 2e-4
-  wd: 0.001
+  wd: 0.0001
   loss_temp: 0.07
   max_epochs: 500
   min_epochs: 10

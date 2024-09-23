@@ -1,8 +1,7 @@
 
 defaults:
   - _self_
-  - data: SEEDV
-  - data_source: FACED_blink_only
+  - data: FACED_blink_only
   - model: cnn_att
 
 seed: 7
@@ -19,7 +18,7 @@ log:
 
 
 train:
-  gpus: [2]
+  gpus: [0]
   valid_method: 10
   iftest: False
   n_subs: ${data.n_subs}
@@ -29,7 +28,7 @@ train:
   max_epochs: 30
   min_epochs: 10
   patience: 30
-  num_workers: 8
+  num_workers: 127
   restart_times: ${train.max_epochs}  # scheduler
 
 

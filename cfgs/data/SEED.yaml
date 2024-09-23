@@ -1,5 +1,5 @@
 dataset_name: 'SEED'
-data_dir: '/mnt/data/model_weights/grm/SEED_new2'
+data_dir: '/mnt/dataset0/qingzhu/AutoICA_Processed_EEG/SEED/Processed_data_filter_0.50_47.00_AutoICA_Cus_Threshold'
 fs: 125
 n_channs: 60
 n_session: 3
@@ -8,7 +8,7 @@ n_vids: 15
 n_class: 3
 
 # changeable
-timeLen: 30
-timeStep: 15
+timeLen: 5
+timeStep: 2
 timeLen2: 1
 timeStep2: 1

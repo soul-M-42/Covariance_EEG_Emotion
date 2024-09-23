@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import itertools
 import time
 import random
-from utils_new import stratified_layerNorm
+from utils_new import stratified_layerNorm, LDS_new
 
 def logm(t):
     u, s, v = torch.svd(t) 
@@ -125,7 +125,7 @@ class channelwiseEncoder(nn.Module):
         return outputs
 
 class MLP(nn.Module):
-    def __init__(self, input_dim, hidden_dim, out_dim, dropout=0.2, bn='no'):
+    def __init__(self, input_dim, hidden_dim, out_dim, dropout=0.1, bn='no'):
         super(MLP, self).__init__()
         self.fc1 = nn.Linear(input_dim, hidden_dim)
         # if (bn == 'bn1') or (bn == 'bn2'):
@@ -653,10 +653,18 @@ class MultiModel_PL(pl.LightningModule):
         B, T, n_dim, n_channel = feature.shape
         feature = feature.permute(0, 2, 3, 1)
         feature = feature.reshape(B, n_dim*n_channel, T)
+        # LDS Smooth
+        save_img(feature[4], 'feature_before_lds.png')
+        feature = feature.permute(0, 2, 1)
+        feature = LDS_new(feature)
+        feature = feature.permute(0, 2, 1)
+        save_img(feature[4], 'feature_after_lds.png')
+        # Ave Pooling
         feature = F.avg_pool1d(feature, kernel_size=T // 5)
         feature = F.avg_pool1d(feature, kernel_size=feature.shape[-1])
         # print(feature.shape)
         feature = feature.reshape(B, -1)
+        save_img(feature, 'feature_lds.png')
         feature = feature.detach()
         logits = MLP_(feature)
         CEloss = torch.nn.CrossEntropyLoss()
