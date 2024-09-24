@@ -13,6 +13,7 @@ import itertools
 import time
 import random
 from utils_new import stratified_layerNorm, LDS_new
+from model.models import Conv_att_simple_new
 
 def logm(t):
     u, s, v = torch.svd(t) 
@@ -310,34 +311,39 @@ class channel_MLLA(nn.Module):
         #                             for _ in range(self.n_channels)])
         self.encoder = MLLA_BasicLayer(
                                     in_dim=patch_size, hidden_dim=hidden_dim, out_dim=out_dim,
-                                    depth=depth, num_heads=8, drop_path=drop_path, n_filter=n_filter, filterLen=filterLen)
+                                    depth=depth, num_heads=8)
 
     def forward(self, x):
-        # assert n_channels_data == len(x_channel_names), "data channel not equal to channel_name dict length"
-        outputs = []
+        # x has shape [Batch, D1, n_channels, T]
+        B, D1, n_channels, T = x.shape
 
-        for i in range(x.shape[2]):
-            channel_data = x[:, :, i, :]
-            # print(channel_data.shape)
-            # [Batch, channel, time]
-            channel_data = channel_data.permute(0, 2, 1)
-            channel_data = to_patch(channel_data, patch_size=self.patch_size, stride=self.patch_stride)
-            # print(channel_data.shape)
-            # [Batch, time(N), channel(C)]
-            # encoder_index = self.standard_channels.index(x_channel_names[i])
-            # out_channel_i = self.encoders[encoder_index](channel_data)
-            out_channel_i = self.encoder(channel_data)
-            outputs.append(out_channel_i)
-        outputs = torch.stack(outputs, dim=1)
-        # [B, C, T, out_dim]
-        outputs = outputs.permute(0, 1, 3, 2)
-        outputs = stratified_layerNorm(outputs, n_samples=outputs.shape[0]/2)
-        outputs = outputs.permute(0, 1, 3, 2)
-        # outputs = outputs.reshape((outputs.shape[0], -1, outputs.shape[-1]))
-        # outputs = outputs.unsqueeze(dim=1)
-        # outputs = outputs.squeeze(dim=1)
-        # [batch, channel*n_filter, time]
-        return outputs
+        # Permute and reshape to combine batch and channel dimensions
+        x = x.permute(0, 2, 1, 3)  # Shape: [Batch, n_channels, D1, T]
+        x = x.reshape(B * n_channels, D1, T)  # Shape: [Batch * n_channels, D1, T]
+
+        # Permute to match expected input shape for to_patch
+        x = x.permute(0, 2, 1)  # Shape: [Batch * n_channels, T, D1]
+
+        # Apply to_patch to all channels at once
+        x = to_patch(x, patch_size=self.patch_size, stride=self.patch_stride)  # Shape: [Batch * n_channels, N, D1]
+
+        # Pass through the encoder
+        x = self.encoder(x)  # Shape: [Batch * n_channels, N, out_dim]
+
+        # Reshape back to separate batch and channel dimensions
+        x = x.view(B, n_channels, x.shape[1], x.shape[2])  # Shape: [Batch, n_channels, N, out_dim]
+
+        # Permute dimensions as required
+        x = x.permute(0, 1, 3, 2)  # Shape: [Batch, n_channels, out_dim, N]
+
+        # Apply stratified_layerNorm
+        x = stratified_layerNorm(x, n_samples=B // 2)
+
+        # Permute back to original dimension order
+        x = x.permute(0, 1, 3, 2)  # Shape: [Batch, n_channels, N, out_dim]
+
+        return x
+
 
 class Channel_Alignment(nn.Module):
     def __init__(self, source_channel, target_channel):
@@ -422,6 +428,22 @@ class MultiModel_PL(pl.LightningModule):
         # self.train_dataset = dm.train_dataset
         # self.train_set_1 = self.train_dataset.dataset_a
         # self.train_set_2 = self.train_dataset.dataset_b
+        self.cnn_encoder = Conv_att_simple_new(n_timeFilters=16,
+                                                timeFilterLen=30,
+                                                n_msFilters=4,
+                                                msFilter_timeLen=3,
+                                                n_channs=60,
+                                                dilation_array=[1,3,6,12],
+                                                seg_att=15,
+                                                avgPoolLen=15,
+                                                timeSmootherLen=3,
+                                                multiFact=2,
+                                                stratified=['initial', 'middle1', 'middle2'],
+                                                activ='softmax',
+                                                temp=1.0,
+                                                saveFea=False,
+                                                has_att=True,
+                                                global_att=False)
     
 
     def cov_mat(self, data):
@@ -665,7 +687,7 @@ class MultiModel_PL(pl.LightningModule):
         # print(feature.shape)
         feature = feature.reshape(B, -1)
         save_img(feature, 'feature_lds.png')
-        feature = feature.detach()
+        # feature = feature.detach()
         logits = MLP_(feature)
         CEloss = torch.nn.CrossEntropyLoss()
         loss = CEloss(logits, labels)
@@ -722,6 +744,9 @@ class MultiModel_PL(pl.LightningModule):
         x_1 = stratified_layerNorm(x_1, n_samples=x_1.shape[0]/2)
         x_2 = stratified_layerNorm(x_2, n_samples=x_2.shape[0]/2)
         x_3 = stratified_layerNorm(x_3, n_samples=x_3.shape[0]/2)
+        # fea_1 = self.cnn_encoder(x_1)
+        # fea_2 = self.cnn_encoder(x_2)
+        # fea_3 = self.cnn_encoder(x_3)
         fea_1 = self.channelwiseEncoder(x_1)
         fea_2 = self.channelwiseEncoder(x_2)
         fea_3 = self.channelwiseEncoder(x_3)
@@ -732,6 +757,8 @@ class MultiModel_PL(pl.LightningModule):
         fea_3 = self.alignmentModule_3(fea_3)
         fea_clisa_1 = self.proj(fea_1)
         fea_clisa_2 = self.proj(fea_2)
+        # fea_clisa_1 = fea_1
+        # fea_clisa_2 = fea_2
         
         loss = 0
         loss_1 = 0
@@ -826,6 +853,9 @@ class MultiModel_PL(pl.LightningModule):
         x_1 = stratified_layerNorm(x_1, n_samples=x_1.shape[0]/2)
         x_2 = stratified_layerNorm(x_2, n_samples=x_2.shape[0]/2)
         x_3 = stratified_layerNorm(x_3, n_samples=x_3.shape[0]/2)
+        # fea_1 = self.cnn_encoder(x_1)
+        # fea_2 = self.cnn_encoder(x_2)
+        # fea_3 = self.cnn_encoder(x_3)
         fea_1 = self.channelwiseEncoder(x_1)
         fea_2 = self.channelwiseEncoder(x_2)
         fea_3 = self.channelwiseEncoder(x_3)
@@ -836,6 +866,8 @@ class MultiModel_PL(pl.LightningModule):
         fea_3 = self.alignmentModule_3(fea_3)
         fea_clisa_1 = self.proj(fea_1)
         fea_clisa_2 = self.proj(fea_2)
+        # fea_clisa_1 = fea_1
+        # fea_clisa_2 = fea_2
         
         # save_img(logits, 'logits_debug.png')
         

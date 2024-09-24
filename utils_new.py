@@ -81,11 +81,8 @@ def LDS(sequence):
     return sequence_new
 
 def LDS_new(sequence):
-    # sequence: (B, time_steps, n_dims)
+    # sequence: (B, n, n_dims)
     B, n, n_dims = sequence.shape
-
-    # Initialize output tensor
-    sequence_new = torch.zeros_like(sequence)  # (B, n, n_dims)
 
     # Compute the mean over the time axis
     ave = torch.mean(sequence, dim=1)  # (B, n_dims)
@@ -96,50 +93,87 @@ def LDS_new(sequence):
     # Initial state mean
     u0 = ave  # (B, n_dims)
 
-    # Define constants
-    V0 = 0.01
-    A = 1.0
-    T = 0.0001
-    C = 1.0
-    sigma = 1.0
+    # Define constants as tensors
+    V0 = torch.tensor(0.01, dtype=sequence.dtype, device=sequence.device)
+    A = torch.tensor(1.0, dtype=sequence.dtype, device=sequence.device)
+    T = torch.tensor(0.0001, dtype=sequence.dtype, device=sequence.device)
+    C = torch.tensor(1.0, dtype=sequence.dtype, device=sequence.device)
+    sigma = torch.tensor(1.0, dtype=sequence.dtype, device=sequence.device)
     givenAll = 1
 
-    # Initialize tensors
-    P = torch.zeros((B, n_dims, n))
-    u = torch.zeros((B, n_dims, n))
-    V = torch.zeros((B, n_dims, n))
-    K = torch.zeros((B, n_dims, n))
+    # Initialize lists to collect values
+    u_list = []
+    V_list = []
+    P_list = []
+    K_list = []
 
     # Initial Kalman gain
-    K_init = V0 * C / (C * V0 * C + sigma)  # Scalar value
-    K[:, :, 0] = K_init  # Broadcast to (B, n_dims)
+    K_init = V0 * C / (C * V0 * C + sigma)  # Scalar tensor
+    K0 = K_init.expand(B, n_dims)  # (B, n_dims)
 
     # Initial estimates
-    u[:, :, 0] = u0 + K[:, :, 0] * (X[:, :, 0] - C * u0)
-    V[:, :, 0] = (1 - K[:, :, 0] * C) * V0
+    u_prev = u0 + K0 * (X[:, :, 0] - C * u0)  # (B, n_dims)
+    V_prev = (1 - K0 * C) * V0  # (B, n_dims)
+    u_list.append(u_prev)
+    V_list.append(V_prev)
+    K_list.append(K0)
 
     # Forward pass (Kalman Filter)
     for i in range(1, n):
-        P[:, :, i - 1] = A * V[:, :, i - 1] * A + T
-        Denominator = C * P[:, :, i - 1] * C + sigma
-        K[:, :, i] = P[:, :, i - 1] * C / Denominator
-        u[:, :, i] = A * u[:, :, i - 1] + K[:, :, i] * (X[:, :, i] - C * A * u[:, :, i - 1])
-        V[:, :, i] = (1 - K[:, :, i] * C) * P[:, :, i - 1]
+        P_prev = A * V_prev * A + T  # (B, n_dims)
+        Denominator = C * P_prev * C + sigma  # (B, n_dims)
+        K_curr = P_prev * C / Denominator  # (B, n_dims)
+        u_curr = A * u_prev + K_curr * (X[:, :, i] - C * A * u_prev)  # (B, n_dims)
+        V_curr = (1 - K_curr * C) * P_prev  # (B, n_dims)
+
+        # Append current values to lists
+        u_list.append(u_curr)
+        V_list.append(V_curr)
+        K_list.append(K_curr)
+        P_list.append(P_prev)
+
+        # Update previous values
+        u_prev = u_curr
+        V_prev = V_curr
+
+    # Stack lists to form tensors of shape (B, n_dims, n)
+    u = torch.stack(u_list, dim=2)  # (B, n_dims, n)
+    V = torch.stack(V_list, dim=2)  # (B, n_dims, n)
+    K = torch.stack(K_list, dim=2)  # (B, n_dims, n)
 
     # Backward pass (Rauch–Tung–Striebel smoother)
     if givenAll == 1:
-        uAll = torch.zeros_like(u)
-        VAll = torch.zeros_like(V)
-        J = torch.zeros((B, n_dims, n))
+        uAll_list = []
+        VAll_list = []
 
-        uAll[:, :, -1] = u[:, :, -1]
-        VAll[:, :, -1] = V[:, :, -1]
+        # Initialize with the last element
+        uAll_prev = u[:, :, -1]  # (B, n_dims)
+        VAll_prev = V[:, :, -1]  # (B, n_dims)
+
+        # Insert at the beginning of the list
+        uAll_list.insert(0, uAll_prev)
+        VAll_list.insert(0, VAll_prev)
 
         for ir in range(n - 1):
             i = n - 2 - ir
-            J[:, :, i] = V[:, :, i] * A / P[:, :, i]
-            uAll[:, :, i] = u[:, :, i] + J[:, :, i] * (uAll[:, :, i + 1] - A * u[:, :, i])
-            VAll[:, :, i] = V[:, :, i] + J[:, :, i] * (VAll[:, :, i + 1] - P[:, :, i]) * J[:, :, i]
+            V_i = V[:, :, i]  # (B, n_dims)
+            P_i = A * V_i * A + T  # (B, n_dims)
+
+            J_i = V_i * A / P_i  # (B, n_dims)
+            u_i = u[:, :, i]
+            uAll_curr = u_i + J_i * (uAll_prev - A * u_i)
+            VAll_curr = V_i + J_i * (VAll_prev - P_i) * J_i
+
+            # Insert at the beginning of the list
+            uAll_list.insert(0, uAll_curr)
+            VAll_list.insert(0, VAll_curr)
+
+            # Update previous values
+            uAll_prev = uAll_curr
+            VAll_prev = VAll_curr
+
+        # Stack lists to form tensors
+        uAll = torch.stack(uAll_list, dim=2)  # (B, n_dims, n)
 
         X = uAll
     else:
@@ -147,5 +181,4 @@ def LDS_new(sequence):
 
     # Permute back to original shape
     sequence_new = X.permute(0, 2, 1)  # (B, n, n_dims)
-
     return sequence_new

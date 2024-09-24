@@ -3,6 +3,7 @@ import torch.nn.functional as F
 import torch
 import numpy as np
 from transformers.models.bert import BertModel, BertConfig
+from MLLA_test import MLLA_BasicLayer
 
 
 def stratified_layerNorm(out, n_samples):
@@ -50,6 +51,15 @@ def stratified_layerNorm(out, n_samples):
 #         out_str[n_samples*i: n_samples*(i+1)] = out_oneSub_str.reshape(n_samples, -1, out_oneSub_str.shape[1]).permute(0,2,1).reshape(n_samples, out.shape[1], out.shape[2], -1)
 #     return out_str
 
+def to_patch(data, patch_size=50, stride=25):
+    batchsize, timelen, dim = data.shape
+    num_patches = (timelen - patch_size) // stride + 1
+    patches = torch.zeros((batchsize, num_patches, patch_size)).to('cuda')
+    for i in range(num_patches):
+        start_idx = i * stride
+        end_idx = start_idx + patch_size
+        patches[:, i, :] = data[:, start_idx:end_idx, 0]
+    return patches
 
 class ConvNet_complete_baseline(nn.Module):
     def __init__(self, n_timeFilters, timeFilterLen, n_spatialFilters, avgPoolLen, timeSmootherLen, n_channs, stratified, multiFact, saveFea):
@@ -427,6 +437,7 @@ class Conv_att_transformer(nn.Module):
         # # self.flatten = nn.Flatten()
     
     def forward(self, input):
+        print(input.shape)
         if 'initial' in self.stratified:
             input = stratified_layerNorm(input, int(input.shape[0]/2))
         out = self.timeConv(input)
@@ -514,3 +525,76 @@ class Channel_Alignment(nn.Module):
         # 30(ch) * 30 * 1 * 2750
         out = torch.permute(out, (1, 2, 0, 3))
         return out
+
+class channel_MLLA(nn.Module):
+    def __init__(self, patch_size, hidden_dim, out_dim, depth,
+                patch_stride, drop_path, n_filter, filterLen,
+                stratified,
+                avgPoolLen=3, multiFact=2, timeSmootherLen=3,
+                n_msFilters_total=60):
+        super().__init__()
+        self.stratified = stratified
+        self.patch_size = patch_size
+        self.patch_stride = patch_stride
+        self.avgpool = nn.AdaptiveAvgPool1d(1)
+        # self.encoders = nn.ModuleList([MLLA_BasicLayer(
+        #                             in_dim=patch_size, hidden_dim=hidden_dim, out_dim=out_dim,
+        #                             depth=1, num_heads=8) 
+        #                             for _ in range(self.n_channels)])
+        self.encoder = MLLA_BasicLayer(
+                                    in_dim=patch_size, hidden_dim=hidden_dim, out_dim=out_dim,
+                                    depth=depth, num_heads=8, drop_path=drop_path, n_filter=n_filter, filterLen=filterLen)
+        self.extract_mode = 'me'
+        # projector avepooling+timeSmooth
+        
+        self.avgpool = nn.AvgPool2d((1, avgPoolLen))
+        self.timeConv1 = nn.Conv2d(n_msFilters_total, n_msFilters_total * multiFact, (1, timeSmootherLen), groups=n_msFilters_total)
+        self.timeConv2 = nn.Conv2d(n_msFilters_total * multiFact, n_msFilters_total * multiFact * multiFact, (1, timeSmootherLen), groups=n_msFilters_total * multiFact)
+    def forward(self, x):
+        # print(x.shape)
+        # assert n_channels_data == len(x_channel_names), "data channel not equal to channel_name dict length"
+        out = []
+
+        for i in range(x.shape[2]):
+            channel_data = x[:, :, i, :]
+            # print(channel_data.shape)
+            # [Batch, channel, time]
+            channel_data = channel_data.permute(0, 2, 1)
+            channel_data = to_patch(channel_data, patch_size=self.patch_size, stride=self.patch_stride)
+            # print(channel_data.shape)
+            # [Batch, time(N), channel(C)]
+            # encoder_index = self.standard_channels.index(x_channel_names[i])
+            # out_channel_i = self.encoders[encoder_index](channel_data)
+            out_channel_i = self.encoder(channel_data)
+            out.append(out_channel_i)
+        out = torch.stack(out, dim=1)
+        # [B, C, T, out_dim]
+        out = out.permute(0, 1, 3, 2)
+        out = stratified_layerNorm(out, int(out.shape[0]/2))
+        # out = out.permute(0, 1, 3, 2)
+        # outputs = outputs.reshape((outputs.shape[0], -1, outputs.shape[-1]))
+        # outputs = outputs.unsqueeze(dim=1)
+        # outputs = outputs.squeeze(dim=1)
+        # [batch, channel*n_filter, time]
+        # return outputs
+        # print(out.shape)
+        if self.saveFea:
+            return out
+        else:         # projecter
+            if self.extract_mode == 'de':
+                out = F.relu(out)
+            out = self.avgpool(out)    # B*(t_dim*n_msFilters*4)*1*t_pool
+            if 'middle1' in self.stratified:
+                out = stratified_layerNorm(out, int(out.shape[0]/2))
+            out = F.relu(self.timeConv1(out))
+            out = F.relu(self.timeConv2(out))          #B*(t_dim*n_msFilters*4*multiFact*multiFact)*1*t_pool
+            if 'middle2' in self.stratified:
+                out = stratified_layerNorm(out, int(out.shape[0]/2))     
+            proj_out = out.reshape(out.shape[0], -1)
+            return F.normalize(proj_out, dim=1)
+        
+    def set_saveFea(self, saveFea):
+        self.saveFea = saveFea
+
+    def set_stratified(self,stratified):
+        self.stratified = stratified

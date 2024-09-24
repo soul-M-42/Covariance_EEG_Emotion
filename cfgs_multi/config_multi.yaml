@@ -7,7 +7,7 @@ defaults:
   - data@data_2: SEEDV
   # - data_2: FACED_blink_only_small
   # - data_2: SEEDV_small
-  - data@data_3: FACED_blink_only_small
+  - data@data_3: FACED_blink_only
   # - data_2: FACED_blink_only_small
   # - data_2: SEEDV_small
   # WARNING: REMEMBER TO CHANGE train.n_fold WHEN CHANGE DATASET/DATASET_SMALL
@@ -19,9 +19,9 @@ seed: 7
 
 channel_encoder:
   patch_size: 32
-  hidden_dim: 128
+  hidden_dim: 64
   out_dim: 3
-  depth: 1
+  depth: 5
   patch_stride: 16
   drop_path: 0.1
   n_filter: 16
@@ -43,7 +43,7 @@ log:
   # logpath: 'log'
   # logpath: 'log'
   run: 4
-  proj_name: 'Trinity_LDS_timeLen=${data_1.timeLen}_CDA=${align.align_loss}_Riem=${align.to_riem}_patchSize=${channel_encoder.patch_size}_patchStride=${channel_encoder.patch_stride}_hidden_dim=${channel_encoder.hidden_dim}_out_dim=${channel_encoder.out_dim}_depth=${channel_encoder.depth}_channelUni=${align.n_channel_uni}_wd=${train.wd}_alignFactor=${align.factor}'
+  proj_name: 'MLLA_timeLen=${data_1.timeLen}_CDA=${align.align_loss}_Riem=${align.to_riem}_patchSize=${channel_encoder.patch_size}_patchStride=${channel_encoder.patch_stride}_hidden_dim=${channel_encoder.hidden_dim}_out_dim=${channel_encoder.out_dim}_depth=${channel_encoder.depth}_channelUni=${align.n_channel_uni}_wd=${train.wd}_alignFactor=${align.factor}'
   # CDA for Cross Dataset Align
 
   exp_name: 'hess'
