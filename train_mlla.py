@@ -1,20 +1,20 @@
 import hydra
 from omegaconf import DictConfig
 import torch
-from model import ExtractorModel
+from model import MultiModel
 import numpy as np
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
-from multi_model import MultiModel_PL
 import wandb
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from data.pl_datamodule import EEGDataModule
+from multi_dataloader import MultiDataModule
 import os
 import logging
 
 log = logging.getLogger(__name__)
 
-@hydra.main(config_path="cfgs_mlla", config_name="config", version_base="1.3")
+@hydra.main(config_path="cfgs_mlla", config_name="config_mlla", version_base="1.3")
 def train_ext(cfg: DictConfig) -> None:
     # set logger
    
@@ -69,7 +69,10 @@ def train_ext(cfg: DictConfig) -> None:
 
         dm = EEGDataModule(cfg.data, train_subs, val_subs, train_vids, val_vids,
                            cfg.train.valid_method=='loo', cfg.train.num_workers)
-            
+        
+        dm = MultiDataModule([cfg.data], fold, n_folds, num_workers=cfg.train.num_workers,
+                        n_pairs=cfg.train.n_pairs,
+        )
 
         # load model
         model = hydra.utils.instantiate(cfg.model)
@@ -79,7 +82,7 @@ def train_ext(cfg: DictConfig) -> None:
         log.info(f'Total number of parameters: {total_params}')
         log.info(f'Model size: {total_size} bytes ({total_size / (1024 ** 2):.2f} MB)')
         
-        Extractor = ExtractorModel(model, cfg.train)
+        Extractor = MultiModel(model, cfg.train)
         limit_val_batches = 0.0 if n_folds == 1 else 1.0
         trainer = pl.Trainer(logger=wandb_logger, callbacks=[checkpoint_callback, earlyStopping_callback],
                              max_epochs=cfg.train.max_epochs, min_epochs=cfg.train.min_epochs, 

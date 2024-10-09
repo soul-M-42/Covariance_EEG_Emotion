@@ -62,7 +62,6 @@ class EEGSampler:
 
             for i in range(n_subs * n_sessions):
                 for j in range(i + n_sessions, n_subs * n_sessions, n_sessions):
-                    if int(i % n_sessions) == int(j % n_sessions):
                         pairs.append((i, j))
 
             random.shuffle(pairs)

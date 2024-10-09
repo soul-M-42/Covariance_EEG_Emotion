@@ -7,3 +7,4 @@ doc/
 *.png
 lightning_logs/
 clisa_run/
+wandb/

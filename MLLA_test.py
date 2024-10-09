@@ -145,6 +145,7 @@ class MLLA_BasicLayer(nn.Module):
 
     def forward(self, x):
         x = F.relu(self.read_in(x))
+        # print(x.shape)
         for blk in self.blocks:
             x = blk(x)
         x = F.relu(self.read_out(x))

@@ -1,0 +1,12 @@
+program: wandb_sweep_multi.py
+method: grid  # You can also use 'grid' or 'random'
+metric:
+  name: loss_total/val
+  goal: minimize
+parameters:
+  train:
+    n_fold:
+      values: [0]
+  channel_encoder:
+    patch_stride: 
+      values: [4, 8, 16]

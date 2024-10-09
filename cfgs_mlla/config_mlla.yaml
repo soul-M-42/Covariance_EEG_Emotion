@@ -1,7 +1,7 @@
 
 defaults:
   - _self_
-  - data: SEEDV
+  - data: FACED_blink_only
   - model: mlla
 
 seed: 7
@@ -30,6 +30,7 @@ train:
   patience: 30
   num_workers: 127
   restart_times: ${train.max_epochs}  # scheduler
+  n_pairs: 1024
 
 
 mlp:

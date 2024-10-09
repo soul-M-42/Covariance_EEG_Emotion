@@ -531,7 +531,7 @@ class channel_MLLA(nn.Module):
                 patch_stride, drop_path, n_filter, filterLen,
                 stratified,
                 avgPoolLen=3, multiFact=2, timeSmootherLen=3,
-                n_msFilters_total=60):
+                n_msFilters_total=30):
         super().__init__()
         self.stratified = stratified
         self.patch_size = patch_size
@@ -543,7 +543,7 @@ class channel_MLLA(nn.Module):
         #                             for _ in range(self.n_channels)])
         self.encoder = MLLA_BasicLayer(
                                     in_dim=patch_size, hidden_dim=hidden_dim, out_dim=out_dim,
-                                    depth=depth, num_heads=8, drop_path=drop_path, n_filter=n_filter, filterLen=filterLen)
+                                    depth=depth, num_heads=8)
         self.extract_mode = 'me'
         # projector avepooling+timeSmooth
         
@@ -551,33 +551,34 @@ class channel_MLLA(nn.Module):
         self.timeConv1 = nn.Conv2d(n_msFilters_total, n_msFilters_total * multiFact, (1, timeSmootherLen), groups=n_msFilters_total)
         self.timeConv2 = nn.Conv2d(n_msFilters_total * multiFact, n_msFilters_total * multiFact * multiFact, (1, timeSmootherLen), groups=n_msFilters_total * multiFact)
     def forward(self, x):
-        # print(x.shape)
-        # assert n_channels_data == len(x_channel_names), "data channel not equal to channel_name dict length"
-        out = []
+        # x has shape [Batch, D1, n_channels, T]
+        B, D1, n_channels, T = x.shape
 
-        for i in range(x.shape[2]):
-            channel_data = x[:, :, i, :]
-            # print(channel_data.shape)
-            # [Batch, channel, time]
-            channel_data = channel_data.permute(0, 2, 1)
-            channel_data = to_patch(channel_data, patch_size=self.patch_size, stride=self.patch_stride)
-            # print(channel_data.shape)
-            # [Batch, time(N), channel(C)]
-            # encoder_index = self.standard_channels.index(x_channel_names[i])
-            # out_channel_i = self.encoders[encoder_index](channel_data)
-            out_channel_i = self.encoder(channel_data)
-            out.append(out_channel_i)
-        out = torch.stack(out, dim=1)
-        # [B, C, T, out_dim]
-        out = out.permute(0, 1, 3, 2)
-        out = stratified_layerNorm(out, int(out.shape[0]/2))
-        # out = out.permute(0, 1, 3, 2)
-        # outputs = outputs.reshape((outputs.shape[0], -1, outputs.shape[-1]))
-        # outputs = outputs.unsqueeze(dim=1)
-        # outputs = outputs.squeeze(dim=1)
-        # [batch, channel*n_filter, time]
-        # return outputs
-        # print(out.shape)
+        # Permute and reshape to combine batch and channel dimensions
+        x = x.permute(0, 2, 1, 3)  # Shape: [Batch, n_channels, D1, T]
+        x = x.reshape(B * n_channels, D1, T)  # Shape: [Batch * n_channels, D1, T]
+
+        # Permute to match expected input shape for to_patch
+        x = x.permute(0, 2, 1)  # Shape: [Batch * n_channels, T, D1]
+
+        # Apply to_patch to all channels at once
+        x = to_patch(x, patch_size=self.patch_size, stride=self.patch_stride)  # Shape: [Batch * n_channels, N, D1]
+
+        # Pass through the encoder
+        x = self.encoder(x)  # Shape: [Batch * n_channels, N, out_dim]
+
+        # Reshape back to separate batch and channel dimensions
+        x = x.view(B, n_channels, x.shape[1], x.shape[2])  # Shape: [Batch, n_channels, N, out_dim]
+
+        # Permute dimensions as required
+        x = x.permute(0, 1, 3, 2)  # Shape: [Batch, n_channels, out_dim, N]
+
+        # Apply stratified_layerNorm
+        x = stratified_layerNorm(x, n_samples=B // 2)
+
+        # Permute back to original dimension order
+        # x = x.permute(0, 1, 3, 2)  # Shape: [Batch, n_channels, N, out_dim]
+        out = x
         if self.saveFea:
             return out
         else:         # projecter

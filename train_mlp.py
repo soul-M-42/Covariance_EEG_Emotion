@@ -15,7 +15,7 @@ import logging
 
 log = logging.getLogger(__name__)
 
-@hydra.main(config_path="cfgs", config_name="config", version_base="1.3")
+@hydra.main(config_path="cfgs_multi", config_name="config_multi", version_base="1.3")
 def train_mlp(cfg: DictConfig) -> None:
     
     pl.seed_everything(cfg.seed)
@@ -27,14 +27,14 @@ def train_mlp(cfg: DictConfig) -> None:
     elif cfg.train.valid_method == 'loo':
         n_folds = cfg.train.n_subs
 
-    n_per = round(cfg.data.n_subs / n_folds)
+    n_per = round(cfg.data_val.n_subs / n_folds)
     best_val_acc_list = []
     
     for fold in range(0,n_folds):
-        cp_dir = os.path.join(cfg.log.cp_dir, cfg.data.dataset_name, f'r{cfg.log.run}')
+        cp_dir = os.path.join(cfg.log.cp_dir, cfg.data_val.dataset_name, f'r{cfg.log.run}')
         os.makedirs(cp_dir, exist_ok=True)
         wandb_logger = WandbLogger(name=cfg.log.exp_name+'mlp'+'v'+str(cfg.train.valid_method)
-                                   +f'_{cfg.data.timeLen}_{cfg.data.timeStep}_r{cfg.log.run}'+f'_f{fold}', 
+                                   +f'_{cfg.data_val.timeLen}_{cfg.data_val.timeStep}_r{cfg.log.run}'+f'_f{fold}', 
                                    project=cfg.log.proj_name, log_model="all")
         cp_monitor = None if n_folds == 1 else "mlp/val/acc"
         es_monitor = "mlp/train/acc" if n_folds == 1 else "mlp/val/acc"
@@ -47,15 +47,15 @@ def train_mlp(cfg: DictConfig) -> None:
         elif fold < n_folds - 1:
             val_subs = np.arange(n_per * fold, n_per * (fold + 1))
         else:
-            val_subs = np.arange(n_per * fold, cfg.data.n_subs)            
-        train_subs = list(set(np.arange(cfg.data.n_subs)) - set(val_subs))
+            val_subs = np.arange(n_per * fold, cfg.data_val.n_subs)            
+        train_subs = list(set(np.arange(cfg.data_val.n_subs)) - set(val_subs))
         # if len(val_subs) == 1:
         #     val_subs = list(val_subs) + train_subs
         log.info(f'train_subs:{train_subs}')
         log.info(f'val_subs:{val_subs}')
         
-        save_dir = os.path.join(cfg.data.data_dir,'ext_fea',f'fea_r{cfg.log.run}')
-        save_path = os.path.join(save_dir,cfg.log.exp_name+'_r'+str(cfg.log.run)+f'_f{fold}_fea_'+cfg.ext_fea.mode+'.npy')
+        save_dir = os.path.join(cfg.data_val.data_dir,'ext_fea')
+        save_path = os.path.join(save_dir,cfg.log.exp_name+f'_f{fold}_fea_'+cfg.ext_fea.mode+'.npy')
         data2 = np.load(save_path)
         log.info('data2 load from: '+save_path)
         # print(data2[:,160])
@@ -63,7 +63,7 @@ def train_mlp(cfg: DictConfig) -> None:
             log.warning('nan in data2')
             data2 = np.where(np.isnan(data2), 0, data2)
         fea_dim = data2.shape[-1]
-        data2 = data2.reshape(cfg.data.n_subs, -1, data2.shape[-1])
+        data2 = data2.reshape(cfg.data_val.n_subs, -1, data2.shape[-1])
         onesub_label2 = np.load(save_dir+'/onesub_label2.npy')
         labels2_train = np.tile(onesub_label2, len(train_subs))
         labels2_val = np.tile(onesub_label2, len(val_subs))

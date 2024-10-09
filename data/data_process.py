@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 
 def LDS(sequence):
     # shape: (timeSample, n_dims)  timesample 为一个vid的采样数
@@ -98,6 +99,98 @@ def LDS_acc(self,sequence):
         V = np.concatenate((V,V_t),-1)
     X = u
     return X.T
+
+def LDS_gpu(sequence):
+    """
+    GPU-accelerated version of the LDS function using PyTorch.
+
+    Args:
+        sequence (torch.Tensor): Input tensor of shape (timeSample, n_dims).
+
+    Returns:
+        torch.Tensor: Smoothed sequence of the same shape as the input.
+    """
+    # Ensure sequence is a PyTorch tensor
+    if not isinstance(sequence, torch.Tensor):
+        sequence = torch.tensor(sequence)
+    
+    # Move sequence to GPU if available
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    sequence = sequence.to(device)
+    sequence = sequence.float()  # Ensure floating point operations
+
+    timeSample, n_dims = sequence.shape
+
+    # Initialize output tensor
+    sequence_new = torch.zeros_like(sequence)
+
+    # Compute the mean over the time axis
+    ave = torch.mean(sequence, dim=0)  # Shape: (n_dims,)
+
+    # Transpose sequence to shape (n_dims, timeSample)
+    X = sequence.transpose(0, 1)  # Shape: (n_dims, timeSample)
+
+    # Initial state mean
+    u0 = ave  # Shape: (n_dims,)
+
+    # Define constants as tensors for GPU compatibility
+    V0 = torch.tensor(0.01, device=device, dtype=sequence.dtype)
+    A = torch.tensor(1.0, device=device, dtype=sequence.dtype)
+    T = torch.tensor(0.0001, device=device, dtype=sequence.dtype)
+    C = torch.tensor(1.0, device=device, dtype=sequence.dtype)
+    sigma = torch.tensor(1.0, device=device, dtype=sequence.dtype)
+    givenAll = 1  # Flag for backward smoothing
+
+    n = timeSample  # Number of time steps
+
+    # Initialize tensors for Kalman filter variables
+    P = torch.zeros((n_dims, n), device=device, dtype=sequence.dtype)
+    u = torch.zeros((n_dims, n), device=device, dtype=sequence.dtype)
+    V = torch.zeros((n_dims, n), device=device, dtype=sequence.dtype)
+    K = torch.zeros((n_dims, n), device=device, dtype=sequence.dtype)
+
+    # Initial Kalman gain
+    K_init = V0 * C / (C * V0 * C + sigma)  # Scalar tensor
+    K[:, 0] = K_init  # Broadcast to all dimensions
+
+    # Initial estimates
+    u[:, 0] = u0 + K[:, 0] * (X[:, 0] - C * u0)
+    V[:, 0] = (1 - K[:, 0] * C) * V0
+
+    # Forward pass (Kalman Filter)
+    for i in range(1, n):
+        P_prev = A * V[:, i - 1] * A + T  # Shape: (n_dims,)
+        Denominator = C * P_prev * C + sigma  # Shape: (n_dims,)
+        K[:, i] = P_prev * C / Denominator  # Shape: (n_dims,)
+        u[:, i] = A * u[:, i - 1] + K[:, i] * (X[:, i] - C * A * u[:, i - 1])
+        V[:, i] = (1 - K[:, i] * C) * P_prev  # Shape: (n_dims,)
+
+    # Backward pass (Rauch–Tung–Striebel smoother)
+    if givenAll == 1:
+        uAll = torch.zeros_like(u)
+        VAll = torch.zeros_like(V)
+        J = torch.zeros_like(K)
+
+        # Initialize with the last element
+        uAll[:, -1] = u[:, -1]
+        VAll[:, -1] = V[:, -1]
+
+        for ir in range(n - 1):
+            i = n - 2 - ir
+            P_i = A * V[:, i] * A + T  # Shape: (n_dims,)
+            J[:, i] = V[:, i] * A / P_i  # Shape: (n_dims,)
+            uAll[:, i] = u[:, i] + J[:, i] * (uAll[:, i + 1] - A * u[:, i])
+            VAll[:, i] = V[:, i] + J[:, i] * (VAll[:, i + 1] - P_i) * J[:, i]
+
+        X_smooth = uAll
+    else:
+        X_smooth = u
+
+    # Transpose back to original shape (timeSample, n_dims)
+    sequence_new = X_smooth.transpose(0, 1)
+    sequence_new = sequence_new.cpu().numpy()
+
+    return sequence_new
 
 
 def running_norm(data,data_mean,data_var,decay_rate):

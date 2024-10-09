@@ -14,6 +14,7 @@ import time
 import random
 from utils_new import stratified_layerNorm, LDS_new
 from model.models import Conv_att_simple_new
+from model.loss.con_loss import SimCLRLoss
 
 def logm(t):
     u, s, v = torch.svd(t) 
@@ -299,7 +300,7 @@ def to_patch(data, patch_size=50, stride=25):
         patches[:, i, :] = data[:, start_idx:end_idx, 0]
     return patches
 
-class channel_MLLA(nn.Module):
+class   channel_MLLA(nn.Module):
     def __init__(self, patch_size, hidden_dim, out_dim, depth, patch_stride, drop_path, n_filter, filterLen):
         super().__init__()
         self.patch_size = patch_size
@@ -314,6 +315,7 @@ class channel_MLLA(nn.Module):
                                     depth=depth, num_heads=8)
 
     def forward(self, x):
+        # print(x.shape)
         # x has shape [Batch, D1, n_channels, T]
         B, D1, n_channels, T = x.shape
 
@@ -323,6 +325,7 @@ class channel_MLLA(nn.Module):
 
         # Permute to match expected input shape for to_patch
         x = x.permute(0, 2, 1)  # Shape: [Batch * n_channels, T, D1]
+        # print(x.shape)
 
         # Apply to_patch to all channels at once
         x = to_patch(x, patch_size=self.patch_size, stride=self.patch_stride)  # Shape: [Batch * n_channels, N, D1]
@@ -360,10 +363,13 @@ class Channel_Alignment(nn.Module):
         # [B, T, out_dim, C]
         out = F.relu(self.fc1(out))
         out = F.relu(self.fc2(out))
+        out = out.permute(0, 3, 2, 1)
+        [B, C, out_dim, T] = out.shape
+        out = out.reshape(B, C*out_dim, 1, T)
         return out
 
 class Clisa_Proj(nn.Module):
-    def __init__(self, n_dim_in, avgPoolLen=3, multiFact=2, timeSmootherLen=3):
+    def __init__(self, n_dim_in, avgPoolLen=3, multiFact=2, timeSmootherLen=6):
         super().__init__()
         self.avgpool = nn.AvgPool2d((1, avgPoolLen))
         self.timeConv1 = nn.Conv2d(n_dim_in, n_dim_in * multiFact, (1, timeSmootherLen), groups=n_dim_in)
@@ -371,8 +377,6 @@ class Clisa_Proj(nn.Module):
         
     def forward(self, x):
         out = x
-        B, T, out_dim, C = x.shape
-        out = out.permute(0, 3, 2, 1)
         # B, C, out_dim, T
         # for c_i in range(C):
         #     data_channel_i = out[:, c_i, :, :].unsqueeze(1)
@@ -393,7 +397,7 @@ class Clisa_Proj(nn.Module):
         return out
 
 class MultiModel_PL(pl.LightningModule):
-    def __init__(self, cfg, dm) -> None:
+    def __init__(self, cfg=None) -> None:
         super().__init__()
         self.cfg = cfg
         self.channelwiseEncoder = channel_MLLA(
@@ -408,7 +412,7 @@ class MultiModel_PL(pl.LightningModule):
         # self.channelwiseEncoder = channelwiseEncoder(n_filter=cfg.channel_encoder.out_dim, standard_channels=cfg.data_1.channels)
         self.alignmentModule_1 = Channel_Alignment(cfg.data_1.n_channs, cfg.align.n_channel_uni)
         self.alignmentModule_2 = Channel_Alignment(cfg.data_2.n_channs, cfg.align.n_channel_uni)
-        self.alignmentModule_3 = Channel_Alignment(cfg.data_3.n_channs, cfg.align.n_channel_uni)
+        # self.alignmentModule_3 = Channel_Alignment(cfg.data_val.n_channs, cfg.align.n_channel_uni)
         # self.decoder = ConvOut(in_shape=cfg.align.n_channel_uni)
         # self.decoder = ConvOut_Euclidean(out_channels=64)
         self.proto = None
@@ -420,10 +424,10 @@ class MultiModel_PL(pl.LightningModule):
         self.restart_times = cfg.train.restart_times
         self.is_logger = cfg.log.is_logger
         self.align_factor = cfg.align.factor
-        self.proj = Clisa_Proj(n_dim_in=cfg.align.n_channel_uni)
+        self.proj = Clisa_Proj(n_dim_in=cfg.align.n_channel_uni * cfg.channel_encoder.out_dim)
         self.MLP_1 = MLP(input_dim=180, hidden_dim=64, out_dim=cfg.data_1.n_class)
         self.MLP_2 = MLP(input_dim=180, hidden_dim=64, out_dim=cfg.data_2.n_class)
-        self.MLP_3 = MLP(input_dim=180, hidden_dim=64, out_dim=cfg.data_3.n_class)
+        # self.MLP_3 = MLP(input_dim=180, hidden_dim=64, out_dim=cfg.data_val.n_class)
         # self.dm = dm
         # self.train_dataset = dm.train_dataset
         # self.train_set_1 = self.train_dataset.dataset_a
@@ -432,7 +436,7 @@ class MultiModel_PL(pl.LightningModule):
                                                 timeFilterLen=30,
                                                 n_msFilters=4,
                                                 msFilter_timeLen=3,
-                                                n_channs=60,
+                                                n_channs=30,
                                                 dilation_array=[1,3,6,12],
                                                 seg_att=15,
                                                 avgPoolLen=15,
@@ -444,7 +448,8 @@ class MultiModel_PL(pl.LightningModule):
                                                 saveFea=False,
                                                 has_att=True,
                                                 global_att=False)
-    
+        self.criterion = SimCLRLoss(cfg.train.loss_temp)
+        self.saveFea = False
 
     def cov_mat(self, data):
         batch_size, t, num_channels = data.shape
@@ -588,6 +593,11 @@ class MultiModel_PL(pl.LightningModule):
         return pair_loss
 
     def loss_clisa_fea(self, fea, temperature=0.3):
+
+        loss, logits, logits_labels = self.criterion(fea)
+        [acc_1, acc_5] = top_k_accuracy(logits, logits_labels)
+        return loss, acc_1, acc_5
+    
         N, C = fea.shape
         n_vid = N // 2
         # save_img(fea, 'fea_debug.png')
@@ -723,9 +733,23 @@ class MultiModel_PL(pl.LightningModule):
         mat = self.frechet_mean(mat)
         return mat
     
-    def forward(self, batch):
-        feature = self.channelwiseEncoder(batch)
-        return feature 
+    def forward(self, x, dataset='1'):
+        fea = self.channelwiseEncoder(x)
+        if dataset == '1':
+            out = self.alignmentModule_1(fea)
+        if dataset == '2':
+            out = self.alignmentModule_2(fea)
+        if dataset == '3':
+            # [B, C, T, out_dim]
+            out = fea.permute(0, 1, 3, 2)
+            [B, C, out_dim, T] = out.shape
+            out = out.reshape(B, C*out_dim, 1, T)
+        if self.saveFea:
+            return out, out
+        else:         # projecter
+            return out, self.proj(out)
+
+        return fea_1, fea_clisa_1
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.wd)
         # scheduler1 = torch.optim.lr_scheduler.StepLR(optimizer, step_size=self.max_epochs, gamma=0.8, last_epoch=-1, verbose=False)
@@ -737,28 +761,15 @@ class MultiModel_PL(pl.LightningModule):
         [x_1, x_2, x_3], [y_1, y_2, y_3] = batch
         x_1 = x_1[0]
         x_2 = x_2[0]
+        x_3 = x_3[0]
         y_1 = y_1[0]
         y_2 = y_2[0]
-        x_3 = x_3[0]
         y_3 = y_3[0]
-        x_1 = stratified_layerNorm(x_1, n_samples=x_1.shape[0]/2)
-        x_2 = stratified_layerNorm(x_2, n_samples=x_2.shape[0]/2)
-        x_3 = stratified_layerNorm(x_3, n_samples=x_3.shape[0]/2)
-        # fea_1 = self.cnn_encoder(x_1)
-        # fea_2 = self.cnn_encoder(x_2)
-        # fea_3 = self.cnn_encoder(x_3)
-        fea_1 = self.channelwiseEncoder(x_1)
-        fea_2 = self.channelwiseEncoder(x_2)
-        fea_3 = self.channelwiseEncoder(x_3)
-        fea_3 = fea_3.detach()
-        
-        fea_1 = self.alignmentModule_1(fea_1)
-        fea_2 = self.alignmentModule_2(fea_2)
-        fea_3 = self.alignmentModule_3(fea_3)
-        fea_clisa_1 = self.proj(fea_1)
-        fea_clisa_2 = self.proj(fea_2)
-        # fea_clisa_1 = fea_1
-        # fea_clisa_2 = fea_2
+        # x_1, y_1 = batch
+        # print(x_1.shape, y_1.shape)
+
+        fea_1, fea_clisa_1 = self.forward(x_1, '1')
+        fea_2, fea_clisa_2 = self.forward(x_2, '2')
         
         loss = 0
         loss_1 = 0
@@ -797,7 +808,8 @@ class MultiModel_PL(pl.LightningModule):
             loss_clisa_2, acc1_2, acc5_2 = self.loss_clisa_fea(fea_clisa_2)
             loss_1 = loss_1 + loss_clisa_1
             loss_2 = loss_2 + loss_clisa_2
-            loss = loss + loss_clisa_1 + loss_clisa_2
+            loss = loss + loss_clisa_1
+            loss = loss + loss_clisa_2
             self.log_dict({
                     'loss_clisa_1/train': loss_clisa_1, 
                     'loss_clisa_2/train': loss_clisa_2, 
@@ -814,7 +826,6 @@ class MultiModel_PL(pl.LightningModule):
         if self.cfg.align.MLP_loss:
             loss_MLP_1, acc_MLP_1 = self.loss_MLP(fea_1, y_1, self.MLP_1)
             loss_MLP_2, acc_MLP_2 = self.loss_MLP(fea_2, y_2, self.MLP_2)
-            loss_MLP_3, acc_MLP_3 = self.loss_MLP(fea_3, y_3, self.MLP_3)
             self.log_dict({
                 'loss_MLP_1/train': loss_MLP_1, 
                 'loss_MLP_2/train': loss_MLP_2, 
@@ -827,6 +838,12 @@ class MultiModel_PL(pl.LightningModule):
                 on_step=False, on_epoch=True, prog_bar=True)
             loss = loss + loss_MLP_1 + loss_MLP_2
             loss = loss + loss_MLP_3
+
+        self.log_dict({
+                'loss_total/train': loss, 
+                },
+                logger=self.is_logger,
+                on_step=False, on_epoch=True, prog_bar=True)
         
         # Check grad 
         check_grad = 0
@@ -846,30 +863,15 @@ class MultiModel_PL(pl.LightningModule):
         [x_1, x_2, x_3], [y_1, y_2, y_3] = batch
         x_1 = x_1[0]
         x_2 = x_2[0]
+        x_3 = x_3[0]
         y_1 = y_1[0]
         y_2 = y_2[0]
-        x_3 = x_3[0]
         y_3 = y_3[0]
-        x_1 = stratified_layerNorm(x_1, n_samples=x_1.shape[0]/2)
-        x_2 = stratified_layerNorm(x_2, n_samples=x_2.shape[0]/2)
-        x_3 = stratified_layerNorm(x_3, n_samples=x_3.shape[0]/2)
-        # fea_1 = self.cnn_encoder(x_1)
-        # fea_2 = self.cnn_encoder(x_2)
-        # fea_3 = self.cnn_encoder(x_3)
-        fea_1 = self.channelwiseEncoder(x_1)
-        fea_2 = self.channelwiseEncoder(x_2)
-        fea_3 = self.channelwiseEncoder(x_3)
-        # fea_3 = fea_3.detach()
-        
-        fea_1 = self.alignmentModule_1(fea_1)
-        fea_2 = self.alignmentModule_2(fea_2)
-        fea_3 = self.alignmentModule_3(fea_3)
-        fea_clisa_1 = self.proj(fea_1)
-        fea_clisa_2 = self.proj(fea_2)
-        # fea_clisa_1 = fea_1
-        # fea_clisa_2 = fea_2
-        
-        # save_img(logits, 'logits_debug.png')
+        # x_1, y_1 = batch
+        # print(x_1.shape, y_1.shape)
+
+        fea_1, fea_clisa_1 = self.forward(x_1, '1')
+        fea_2, fea_clisa_2 = self.forward(x_2, '2')
         
         loss = 0
         loss_1 = 0
@@ -908,7 +910,8 @@ class MultiModel_PL(pl.LightningModule):
             loss_clisa_2, acc1_2, acc5_2 = self.loss_clisa_fea(fea_clisa_2)
             loss_1 = loss_1 + loss_clisa_1
             loss_2 = loss_2 + loss_clisa_2
-            loss = loss + loss_clisa_1 + loss_clisa_2
+            loss = loss + loss_clisa_1
+            loss = loss + loss_clisa_2
             self.log_dict({
                     'loss_clisa_1/val': loss_clisa_1, 
                     'loss_clisa_2/val': loss_clisa_2, 
@@ -925,19 +928,25 @@ class MultiModel_PL(pl.LightningModule):
         if self.cfg.align.MLP_loss:
             loss_MLP_1, acc_MLP_1 = self.loss_MLP(fea_1, y_1, self.MLP_1)
             loss_MLP_2, acc_MLP_2 = self.loss_MLP(fea_2, y_2, self.MLP_2)
-            loss_MLP_3, acc_MLP_3 = self.loss_MLP(fea_3, y_3, self.MLP_3)
+            # loss_MLP_3, acc_MLP_3 = self.loss_MLP(fea_3, y_3, self.MLP_3)
             self.log_dict({
                 'loss_MLP_1/val': loss_MLP_1, 
                 'loss_MLP_2/val': loss_MLP_2, 
-                'loss_MLP_3/val': loss_MLP_3, 
+                # 'loss_MLP_3/val': loss_MLP_3, 
                 'acc_MLP_1/val': acc_MLP_1, 
                 'acc_MLP_2/val': acc_MLP_2,  
-                'acc_MLP_3/val': acc_MLP_3,      
+                # 'acc_MLP_3/val': acc_MLP_3,      
                 },
                 logger=self.is_logger,
                 on_step=False, on_epoch=True, prog_bar=True)
-            loss = loss + loss_MLP_1 + loss_MLP_2 + loss_MLP_3
+            loss = loss + loss_MLP_1 + loss_MLP_2
         
+        self.log_dict({
+                'loss_total/val': loss, 
+                },
+                logger=self.is_logger,
+                on_step=False, on_epoch=True, prog_bar=True)
+
         # Check grad 
         check_grad = 0
         if check_grad:
@@ -954,9 +963,10 @@ class MultiModel_PL(pl.LightningModule):
         return loss
     
     def predict_step(self, batch, batch_idx):
-        data_1, data_2 = batch
-        x_1, y_1 = data_1
-        x_2, y_2 = data_2
-        fea_1 = self.forward(x_1, self.cfg.data_1.channels)
-        fea_2 = self.forward(x_2, self.cfg.data_2.channels)
-        return fea_1
+        x, y = batch
+        # fea_1 = self.cnn_encoder(x_1)
+        # fea_2 = self.cnn_encoder(x_2)
+        # fea_3 = self.cnn_encoder(x_3)
+
+        fea, fea_clisa = self.forward(x, dataset='3')
+        return fea

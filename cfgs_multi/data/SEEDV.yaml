@@ -1,5 +1,5 @@
 dataset_name: 'SEEDV'
-data_dir: '/mnt/dataset0/xinke/nsy/SEEDV'
+data_dir: '/mnt/dataset0/qingzhu/AutoICA_Processed_EEG/SEED_V/Processed_data_filter_0.50_47.00_AutoICA_Def_Threshold/data_3in1'
 fs: 125
 n_channs: 60
 n_session: 3
