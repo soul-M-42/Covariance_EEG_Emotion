@@ -7,7 +7,7 @@ import pytorch_lightning as pl
 # from pytorch_lightning.loggers import WandbLogger
 # import wandb
 import os
-from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, Callback
 from multi_dataloader import MultiDataModule
 from multi_model import MultiModel_PL
 from data.pl_datamodule import EEGDataModule
@@ -15,6 +15,24 @@ import logging
 from pytorch_lightning.loggers import TensorBoardLogger
 # os.environ["CUDA_VISIBLE_DEVICES"]="3"
 # os.environ["WORLD_SIZE"]="1"
+
+class CovResetCallback(Callback):
+    def __init__(self, n_channel_uni):
+        super().__init__()
+        self.n_channel_uni = n_channel_uni
+    def on_train_epoch_start(self, trainer, pl_module):
+        n_channel_uni = self.n_channel_uni
+        # # do something with all training_step outputs, for example:
+
+        # epoch_mean = torch.stack(pl_module.training_step_outputs).mean()
+        # pl_module.log("training_epoch_mean", epoch_mean)
+        pl_module.cov_1_mean.data.zero_()
+        pl_module.cov_2_mean.data.zero_()
+        print('cov reset!')
+        # # free up the memory
+        # pl_module.training_step_outputs.clear()
+        pass
+
 
 log = logging.getLogger(__name__)
 
@@ -92,7 +110,7 @@ def run_pipeline(cfg: DictConfig):
         limit_val_batches = 0.0 if n_folds == 1 else 1.0
         trainer = pl.Trainer(
             logger=logger,
-            callbacks=[checkpoint_callback, earlyStopping_callback],
+            callbacks=[checkpoint_callback, earlyStopping_callback, CovResetCallback(n_channel_uni = cfg.align.n_channel_uni)],
             max_epochs=cfg.train.max_epochs, min_epochs=cfg.train.min_epochs, 
             accelerator='gpu', devices=cfg.train.gpus, limit_val_batches=limit_val_batches,
             accumulate_grad_batches=cfg.train.grad_accumulation

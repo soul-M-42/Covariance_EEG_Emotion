@@ -14,8 +14,9 @@ import torch
 import os
 from tqdm import tqdm
 import logging
-# import mne
+import mne
 import glob
+from utils_new import save_batch_images, save_img
 
 log = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ def ext_fea(cfg: DictConfig) -> None:
     if isinstance(cfg.train.valid_method, int):
         n_folds = cfg.train.valid_method
     elif cfg.train.valid_method == 'loo':
-        n_folds = cfg.train.n_subs
+        n_folds = cfg.data_val.n_subs
 
     n_per = round(cfg.data_val.n_subs / n_folds)
     
@@ -82,10 +83,19 @@ def ext_fea(cfg: DictConfig) -> None:
             # Extractor.model.stratified = []
             Extractor.saveFea = True
             log.info('load model:'+checkpoint)
+
+            # save dataset-wise cov_feature
+            cov_1_mean, cov_2_mean = Extractor.cov_1_mean, Extractor.cov_2_mean
+            save_batch_images(torch.stack([cov_1_mean, cov_2_mean]), 'cov_mean_extractor')
+            save_path = os.path.join(save_dir,cfg.log.exp_name+f'_f{fold}_cov_'+cfg.ext_fea.mode+'.npy')
+            np.save(save_path, torch.stack([cov_1_mean, cov_2_mean]).cpu())
+            log.info('save covarience:'+save_path)
+
             trainer = pl.Trainer(accelerator='gpu', devices=cfg.train.gpus)
             pred = trainer.predict(Extractor, fold_loader)
             print(len)
             print(f'pred shape:{len(pred), pred[0].shape}')
+            # save_img(pred[0].permute(0, 3, 1, 2).reshape(256*16, 960)[:1000, :], 'fea_before_norm.png')
             # data
             # pred = torch.stack(pred,dim=0)
             pred = torch.cat(pred, dim=0).cpu().numpy()
@@ -104,27 +114,26 @@ def ext_fea(cfg: DictConfig) -> None:
             fea = fea.reshape(cfg.data_val.n_subs,-1,fea.shape[-1])
             
         else:
-            pass
-            # #data2_fold shape (n_subs,session*vid*n_samples, n_chans, n_pionts)
-            # log.info('Direct DE extraction:')
-            # n_subs, n_samples, n_chans, sfreqs = data2_fold.shape
-            # freqs = [[1,4], [4,8], [8,14], [14,30], [30,47]]
-            # de_data = np.zeros((n_subs, n_samples, n_chans, len(freqs)))
-            # n_samples2_onesub_cum = np.concatenate((np.array([0]), np.cumsum(n_samples2_onesub)))
+            #data2_fold shape (n_subs,session*vid*n_samples, n_chans, n_pionts)
+            log.info('Direct DE extraction:')
+            n_subs, n_samples, n_chans, sfreqs = data2_fold.shape
+            freqs = [[1,4], [4,8], [8,14], [14,30], [30,47]]
+            de_data = np.zeros((n_subs, n_samples, n_chans, len(freqs)))
+            n_samples2_onesub_cum = np.concatenate((np.array([0]), np.cumsum(n_samples2_onesub)))
             
-            # for idx, band in enumerate(freqs):
-            #     for sub in range(n_subs):
-            #         log.debug(f'sub:{sub}')
-            #         for vid in tqdm(range(len(n_samples2_onesub)), desc=f'Direct DE Processing sub: {sub}', leave=False):
-            #             data_onevid = data2_fold[sub,n_samples2_onesub_cum[vid]:n_samples2_onesub_cum[vid+1]]
-            #             data_onevid = data_onevid.transpose(1,0,2)
-            #             data_onevid = data_onevid.reshape(data_onevid.shape[0],-1)
+            for idx, band in enumerate(freqs):
+                for sub in range(n_subs):
+                    log.debug(f'sub:{sub}')
+                    for vid in tqdm(range(len(n_samples2_onesub)), desc=f'Direct DE Processing sub: {sub}', leave=False):
+                        data_onevid = data2_fold[sub,n_samples2_onesub_cum[vid]:n_samples2_onesub_cum[vid+1]]
+                        data_onevid = data_onevid.transpose(1,0,2)
+                        data_onevid = data_onevid.reshape(data_onevid.shape[0],-1)
                         
-            #             data_video_filt = mne.filter.filter_data(data_onevid, sfreqs, l_freq=band[0], h_freq=band[1])
-            #             data_video_filt = data_video_filt.reshape(n_chans, -1, sfreqs)
-            #             de_onevid = 0.5*np.log(2*np.pi*np.exp(1)*(np.var(data_video_filt, 2))).T
-            #             de_data[sub,  n_samples2_onesub_cum[vid]:n_samples2_onesub_cum[vid+1], :, idx] = de_onevid
-            # fea = de_data.reshape(n_subs, n_samples, -1)
+                        data_video_filt = mne.filter.filter_data(data_onevid, sfreqs, l_freq=band[0], h_freq=band[1])
+                        data_video_filt = data_video_filt.reshape(n_chans, -1, sfreqs)
+                        de_onevid = 0.5*np.log(2*np.pi*np.exp(1)*(np.var(data_video_filt, 2))).T
+                        de_data[sub,  n_samples2_onesub_cum[vid]:n_samples2_onesub_cum[vid+1], :, idx] = de_onevid
+            fea = de_data.reshape(n_subs, n_samples, -1)
         log.debug(fea.shape)    
         
         fea_train = fea[train_subs]
@@ -155,7 +164,7 @@ def ext_fea(cfg: DictConfig) -> None:
 
         n_sample_sum_sessions = np.sum(n_samples2_sessions,1)
         n_sample_sum_sessions_cum = np.concatenate((np.array([0]), np.cumsum(n_sample_sum_sessions)))
-
+        # save_batch_images(fea[:, :1000, :], 'fea_before_norm')
         print(f'before norm:{fea.shape}')
         # fea_processed = np.zeros_like(fea)
         log.info('running norm:')
@@ -167,6 +176,7 @@ def ext_fea(cfg: DictConfig) -> None:
                                             data_mean,data_var,cfg.ext_fea.rn_decay)
                 
         # print('rn:',fea[0,0])
+        # save_batch_images(fea[:, :1000, :], 'fea_before_LDS')
         print(f'before LDS:{fea.shape}')
         if np.isinf(fea).any():
             log.warning("There are inf values in the array")
@@ -176,6 +186,7 @@ def ext_fea(cfg: DictConfig) -> None:
             log.warning("There are nan values in the array")
         else:
             log.info('no nan')
+        save_batch_images(fea[:, :1000, :], 'fea_after_LDS')
 
         # order back
         if cfg.data_val.dataset_name == 'FACED':
@@ -207,7 +218,7 @@ def ext_fea(cfg: DictConfig) -> None:
         else:
             log.info('no nan')
 
-        save_path = os.path.join(save_dir,cfg.log.exp_name+f'_f{fold}_fea_'+cfg.ext_fea.mode+'.npy')
+        save_path = os.path.join(save_dir,cfg.log.exp_name+f'_f{fold}_fea_{'pretrain_' if cfg.ext_fea.use_pretrain else ''}{cfg.ext_fea.mode if cfg.ext_fea.use_pretrain else 'DE'}.npy')
         # if not os.path.exists(cfg.ext_fea.save_dir):
         #     os.makedirs(cfg.ext_fea.save_dir)  
         np.save(save_path,fea)
@@ -230,7 +241,7 @@ def normTrain(data2,data2_train):
 def cal_fea(data,mode):
     if mode == 'de':
         # print(np.var(data, 3).squeeze()[0])
-        fea = 0.5*np.log(2*np.pi*np.exp(1)*(np.var(data, 3))).squeeze()
+        fea = 0.5*np.log(2*np.pi*np.exp(1)*(np.var(data, 3)) + 1.0).squeeze()
         fea[fea<-40] = -40
     elif mode == 'me':
         fea = np.mean(data, axis=3).squeeze()

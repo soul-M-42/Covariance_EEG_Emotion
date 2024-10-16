@@ -1,5 +1,7 @@
 import numpy as np
 import torch
+import matplotlib.pyplot as plt
+import os
 
 def stratified_layerNorm(out, n_samples):
     n_samples = int(n_samples)
@@ -182,3 +184,34 @@ def LDS_new(sequence):
     # Permute back to original shape
     sequence_new = X.permute(0, 2, 1)  # (B, n, n_dims)
     return sequence_new
+
+def save_img(data, filename='image_with_colorbar.png', cmap='viridis'):
+    # return
+    print('called')
+    if isinstance(data, torch.Tensor):
+        data = data.detach().cpu().numpy()
+    fig, ax = plt.subplots()
+    cax = ax.imshow(data, cmap=cmap)
+    fig.colorbar(cax)
+    plt.savefig(filename, bbox_inches='tight', pad_inches=0.1)
+    plt.close(fig)
+
+def save_batch_images(data, folder='heatmaps', cmap='viridis'):
+    # 创建保存热力图的文件夹
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+
+    if isinstance(data, torch.Tensor):
+        data = data.detach().cpu().numpy()
+
+    # 假设数据的形状为 [B, W, D]
+    B, W, D = data.shape
+
+    # 循环遍历每个批次，生成热力图
+    for i in range(B):
+        filename = os.path.join(folder, f'heatmap_{i}.png')
+        fig, ax = plt.subplots()
+        cax = ax.imshow(data[i], cmap=cmap)
+        fig.colorbar(cax)
+        plt.savefig(filename, bbox_inches='tight', pad_inches=0.1)
+        plt.close(fig)

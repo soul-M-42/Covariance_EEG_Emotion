@@ -12,6 +12,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from torch.utils.data import DataLoader
 import torch
 import logging
+from utils_new import save_batch_images, save_img
 
 log = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ def train_mlp(cfg: DictConfig) -> None:
     if isinstance(cfg.train.valid_method, int):
         n_folds = cfg.train.valid_method
     elif cfg.train.valid_method == 'loo':
-        n_folds = cfg.train.n_subs
+        n_folds = cfg.data_val.n_subs
 
     n_per = round(cfg.data_val.n_subs / n_folds)
     best_val_acc_list = []
@@ -51,11 +52,15 @@ def train_mlp(cfg: DictConfig) -> None:
         train_subs = list(set(np.arange(cfg.data_val.n_subs)) - set(val_subs))
         # if len(val_subs) == 1:
         #     val_subs = list(val_subs) + train_subs
-        log.info(f'train_subs:{train_subs}')
+        # train_subs = finetune_subs
+        log.info(f'finetune_subs:{train_subs}')
         log.info(f'val_subs:{val_subs}')
         
         save_dir = os.path.join(cfg.data_val.data_dir,'ext_fea')
-        save_path = os.path.join(save_dir,cfg.log.exp_name+f'_f{fold}_fea_'+cfg.ext_fea.mode+'.npy')
+        # save_path = os.path.join(save_dir,cfg.log.exp_name+f'_f{fold}_cov_'+cfg.ext_fea.mode+'.npy')
+        # cov_fea = np.load(save_path)
+        # log.info('cov_fea load from: '+save_path)
+        save_path = os.path.join(save_dir,cfg.log.exp_name+f'_f{fold}_fea_{'pretrain_' if cfg.ext_fea.use_pretrain else ''}{cfg.ext_fea.mode if cfg.ext_fea.use_pretrain else 'DE'}.npy')
         data2 = np.load(save_path)
         log.info('data2 load from: '+save_path)
         # print(data2[:,160])
@@ -64,6 +69,8 @@ def train_mlp(cfg: DictConfig) -> None:
             data2 = np.where(np.isnan(data2), 0, data2)
         fea_dim = data2.shape[-1]
         data2 = data2.reshape(cfg.data_val.n_subs, -1, data2.shape[-1])
+        print(f'data_fea.shape:{data2.shape}')
+        save_batch_images(data2[:, :1000, :], 'fea_mlp')
         onesub_label2 = np.load(save_dir+'/onesub_label2.npy')
         labels2_train = np.tile(onesub_label2, len(train_subs))
         labels2_val = np.tile(onesub_label2, len(val_subs))

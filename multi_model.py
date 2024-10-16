@@ -38,7 +38,7 @@ def mean_to_zero(x):
 #     return A_normalized
 
 def save_img(data, filename='image_with_colorbar.png', cmap='viridis'):
-    return
+    # return
     print('called')
     if isinstance(data, torch.Tensor):
         data = data.detach().cpu().numpy()
@@ -47,6 +47,26 @@ def save_img(data, filename='image_with_colorbar.png', cmap='viridis'):
     fig.colorbar(cax)
     plt.savefig(filename, bbox_inches='tight', pad_inches=0.1)
     plt.close(fig)
+
+def save_batch_images(data, folder='heatmaps', cmap='viridis'):
+    # 创建保存热力图的文件夹
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+
+    if isinstance(data, torch.Tensor):
+        data = data.detach().cpu().numpy()
+
+    # 假设数据的形状为 [B, W, D]
+    B, W, D = data.shape
+
+    # 循环遍历每个批次，生成热力图
+    for i in range(B):
+        filename = os.path.join(folder, f'heatmap_{i}.png')
+        fig, ax = plt.subplots()
+        cax = ax.imshow(data[i], cmap=cmap)
+        fig.colorbar(cax)
+        plt.savefig(filename, bbox_inches='tight', pad_inches=0.1)
+        plt.close(fig)
 
 def top_k_accuracy(logits, labels, ks=[1, 5]):
     """
@@ -450,25 +470,33 @@ class MultiModel_PL(pl.LightningModule):
                                                 global_att=False)
         self.criterion = SimCLRLoss(cfg.train.loss_temp)
         self.saveFea = False
+        self.cov_1_mean = nn.Parameter(torch.zeros([cfg.align.n_channel_uni, cfg.align.n_channel_uni]), requires_grad=False)
+        self.cov_2_mean = nn.Parameter(torch.zeros([cfg.align.n_channel_uni, cfg.align.n_channel_uni]), requires_grad=False)
 
     def cov_mat(self, data):
-        batch_size, t, num_channels = data.shape
-        data = data - data.mean(dim=1, keepdim=True)
-        # for data_i in data_centered:
-        #     # save_img(data_i.detach().cpu(), 'data_mat.png')
-        #     # time.sleep(1)
-        #     print(data_i.shape)
-        cov_matrices = torch.matmul(data.transpose(1, 2), data) / (t - 1)
-            # cov_matrices[i] = log_euclidean_normalization(cov_matrices[i])
-        # print(cov_matrices.shape)
-        # mean = cov_matrices.mean(dim=0)
-        # std = cov_matrices.std(dim=0)
-        # cov_matrices = (cov_matrices - mean) / std
-        # for cov in cov_matrices:
-        #     if(not is_spd(cov)):
-        #         raise('not sym cov')
+        # data = (B, C*out_dim, 1, T)
+        [batch_size, num_channels, _, t] = data.shape
+        data = data.reshape(batch_size, self.cfg.align.n_channel_uni, self.cfg.channel_encoder.out_dim, t)
+        # data = (B, C, out_dim, T)
+        data = data.permute(0, 2, 1, 3)
+        # data = (B, out_dim, C, T)
+        B, out_dim, C, T = data.shape
 
-        return cov_matrices
+        # 减去均值，使数据中心化
+        data = data - data.mean(dim=-1, keepdim=True)
+
+        # 计算每个 out_dim 上的协方差矩阵 (B, out_dim, C, C)
+        # 使用爱因斯坦求和简写形式提高效率
+        # print(data.shape)
+        cov_matrices = torch.einsum('boct,bodt->bocd', data, data) / (T - 1)
+        # print(cov_matrices.shape)
+
+        # 在 out_dim 维度上求平均，得到 (B, C, C)
+        # save_batch_images(cov_matrices[1], 'batch_cov')
+        cov_mean = cov_matrices.mean(dim=1)
+        # print(cov_mean.shape)
+
+        return cov_mean
 
 
     
@@ -496,6 +524,7 @@ class MultiModel_PL(pl.LightningModule):
 
     # CDA for Cross_dataset Alignment
     def CDA_loss(self, cov_1, cov_2):
+        cov_dim = self.cfg.align.n_channel_uni * self.cfg.channel_encoder.out_dim
         dis = 0
         cov_1 = cov_1.reshape(2, -1, self.cfg.align.n_channel_uni, self.cfg.align.n_channel_uni)
         cov_2 = cov_2.reshape(2, -1, self.cfg.align.n_channel_uni, self.cfg.align.n_channel_uni)
@@ -513,6 +542,8 @@ class MultiModel_PL(pl.LightningModule):
         return loss
 
     def frobenius_distance(self, matrix_a, matrix_b):
+        if not self.cfg.align.to_riem:
+            return torch.linalg.norm(matrix_a-matrix_b, 'fro')
         # 计算Frobenius距离
         if matrix_a.shape != matrix_b.shape:
             raise ValueError("Must have same shape")
@@ -523,9 +554,9 @@ class MultiModel_PL(pl.LightningModule):
         return distance
 
     def top1_accuracy(self, dis_mat, labels):
-        save_img(dis_mat, 'MLP_logits.png')
+        # save_img(dis_mat, 'MLP_logits.png')
         label_onehot = torch.nn.functional.one_hot(labels, num_classes=9)
-        save_img(label_onehot, 'label_MLP.png')
+        # save_img(label_onehot, 'label_MLP.png')
         # Get the predicted classes (indices of the 到原型最小距离 in each row)
         predicted_classes = torch.argmax(dis_mat, dim=1)
         
@@ -592,7 +623,15 @@ class MultiModel_PL(pl.LightningModule):
         pair_loss = CEloss(logits, labels)
         return pair_loss
 
-    def loss_clisa_fea(self, fea, temperature=0.3):
+    def restore_diagonal(self, matrix):
+        n = matrix.shape[0]
+        assert matrix.shape[1] == n - 1, "Input must be of shape [n, n-1]"
+        restored_matrix = torch.zeros(n, n)
+        mask = ~torch.eye(n, dtype=torch.bool)
+        restored_matrix[mask] = matrix.view(-1)
+        return restored_matrix
+
+    def loss_clisa_fea(self, fea, temperature=0.3, phase='train'):
 
         loss, logits, logits_labels = self.criterion(fea)
         [acc_1, acc_5] = top_k_accuracy(logits, logits_labels)
@@ -729,6 +768,8 @@ class MultiModel_PL(pl.LightningModule):
         return matrix_data   
 
     def get_ind_cen(self, mat):
+        if not self.cfg.align.to_riem:
+            return torch.mean(mat, dim=0)
         mat = torch.squeeze(mat)
         mat = self.frechet_mean(mat)
         return mat
@@ -771,6 +812,15 @@ class MultiModel_PL(pl.LightningModule):
         fea_1, fea_clisa_1 = self.forward(x_1, '1')
         fea_2, fea_clisa_2 = self.forward(x_2, '2')
         
+        cov_1 = torch.mean(self.cov_mat(fea_1), dim=0) / self.cfg.train.n_pairs
+        cov_2 = torch.mean(self.cov_mat(fea_2), dim=0) / self.cfg.train.n_pairs
+        with torch.no_grad():
+            self.cov_1_mean += cov_1  # 使用 in-place 加法操作
+            self.cov_2_mean += cov_2  # 使用 in-place 加法操作
+
+        save_batch_images(torch.stack([self.cov_1_mean, self.cov_2_mean]), 'cov_mean_extractor')
+
+
         loss = 0
         loss_1 = 0
         loss_2 = 0
@@ -845,6 +895,19 @@ class MultiModel_PL(pl.LightningModule):
                 logger=self.is_logger,
                 on_step=False, on_epoch=True, prog_bar=True)
         
+        # 4. cov Riemanian align loss
+        if self.cfg.align.align_loss:
+            cov_1 = self.cov_mat(fea_1)
+            cov_2 = self.cov_mat(fea_2)
+            loss_align = self.CDA_loss(cov_1, cov_2)
+            # print(f'loss_align={loss_align}')
+            self.log_dict({
+                'loss_align/val': loss_align,    
+                },
+                logger=self.is_logger,
+                on_step=False, on_epoch=True, prog_bar=True)
+            loss = loss + loss_align
+
         # Check grad 
         check_grad = 0
         if check_grad:
@@ -906,8 +969,8 @@ class MultiModel_PL(pl.LightningModule):
         if self.cfg.align.clisa_loss:
             # loss_clisa_1 = self.loss_clisa(cov_1, y_1)
             # loss_clisa_2 = self.loss_clisa(cov_2, y_2)
-            loss_clisa_1, acc1_1, acc5_1 = self.loss_clisa_fea(fea_clisa_1)
-            loss_clisa_2, acc1_2, acc5_2 = self.loss_clisa_fea(fea_clisa_2)
+            loss_clisa_1, acc1_1, acc5_1 = self.loss_clisa_fea(fea_clisa_1, phase='val')
+            loss_clisa_2, acc1_2, acc5_2 = self.loss_clisa_fea(fea_clisa_2, phase='val')
             loss_1 = loss_1 + loss_clisa_1
             loss_2 = loss_2 + loss_clisa_2
             loss = loss + loss_clisa_1
@@ -946,6 +1009,18 @@ class MultiModel_PL(pl.LightningModule):
                 },
                 logger=self.is_logger,
                 on_step=False, on_epoch=True, prog_bar=True)
+        
+        # 4. cov Riemanian align loss
+        if self.cfg.align.align_loss:
+            cov_1 = self.cov_mat(fea_1)
+            cov_2 = self.cov_mat(fea_2)
+            loss_align = self.CDA_loss(cov_1, cov_2)
+            self.log_dict({
+                'loss_align/val': loss_align,    
+                },
+                logger=self.is_logger,
+                on_step=False, on_epoch=True, prog_bar=True)
+            loss = loss + loss_align
 
         # Check grad 
         check_grad = 0
@@ -970,3 +1045,4 @@ class MultiModel_PL(pl.LightningModule):
 
         fea, fea_clisa = self.forward(x, dataset='3')
         return fea
+    

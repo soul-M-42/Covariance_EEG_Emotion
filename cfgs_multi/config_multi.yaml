@@ -4,10 +4,10 @@ defaults:
   # - data_1: SEEDV_small
   - data@data_1: SEED
   # - data_1: SEEDV_small
-  - data@data_2: SEEDV
+  - data@data_2: FACED_blink_only
   # - data_2: FACED_blink_only_small
   # - data_2: SEEDV_small
-  - data@data_val: FACED_blink_only
+  - data@data_val: SEEDV
   # - data_2: FACED_blink_only_small
   # - data_2: SEEDV_small
   # WARNING: REMEMBER TO CHANGE train.n_fold WHEN CHANGE DATASET/DATASET_SMALL
@@ -20,7 +20,7 @@ seed: 7
 channel_encoder:
   patch_size: 32
   hidden_dim: 64
-  out_dim: 32
+  out_dim: 16
   depth: 4
   patch_stride: 6
   drop_path: 0.1
@@ -29,11 +29,11 @@ channel_encoder:
 
 align:
   device: gpu
-  factor: 0.05
+  factor: 1.0
   n_channel_uni: 60
   to_riem: False
   proto_loss: False
-  align_loss: False
+  align_loss: True
   clisa_loss: True
   MLP_loss: False
 
@@ -43,31 +43,31 @@ log:
   # logpath: 'log'
   # logpath: 'log'
   run: 4
-  proj_name: 'MultiBase'
+  proj_name: 'val_SEEDV_align'
   # CDA for Cross Dataset Align
 
-  exp_name: $'log.proj_name'
+  exp_name: ${log.proj_name}
 
   # cp_dir: ext/mlp cp save path, different dataset will be saved in separate subfolder 
   cp_dir: '/mnt/data/model_weights/DUAL_cp'   
 
 train:
-  n_fold: 7
+  n_fold: 1
   n_pairs: 1024
   gpus: [0]
   iftest: False
-  valid_method: 10
+  valid_method: 'loo'
   # n_subs: ${data.n_subs}
   lr: 5e-4
   wd: 0.0001
   loss_temp: 0.07
   max_epochs: 30
-  min_epochs: 10
+  min_epochs: 2
   patience: 30
   restart_times: ${train.max_epochs}  # scheduler
   val_sub_p: 0.8
   grad_accumulation: 1
-  num_workers: 0
+  num_workers: 127
 
 
 mlp:
