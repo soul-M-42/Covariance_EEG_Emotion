@@ -13,6 +13,7 @@ from multi_model import MultiModel_PL
 from data.pl_datamodule import EEGDataModule
 import logging
 from pytorch_lightning.loggers import TensorBoardLogger
+import glob
 # os.environ["CUDA_VISIBLE_DEVICES"]="3"
 # os.environ["WORLD_SIZE"]="1"
 
@@ -43,7 +44,7 @@ def run_pipeline(cfg: DictConfig):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     
-    n_folds = cfg.train.n_fold
+    n_folds = cfg.data_val.n_subs if cfg.train.valid_method == 'loo' else cfg.train.valid_method
     for fold in range(n_folds):
         print(f'fold {fold}\n')
         run_name = f'{cfg.log.proj_name}'
@@ -55,47 +56,29 @@ def run_pipeline(cfg: DictConfig):
                 logger = TensorBoardLogger(save_dir=save_dir, name=run_name)
         # dm = MultiEEGDataModule(cfg.data_1, cfg.data_2, fold, n_folds, batch_size=cfg.train.batch_size, num_workers=cfg.train.num_workers,
         #                         device=cfg.align.device)
-        dm = MultiDataModule([cfg.data_1, cfg.data_2, cfg.data_val], fold, n_folds, num_workers=cfg.train.num_workers,
-                            n_pairs=cfg.train.n_pairs,
+        n_subs = cfg.data_val.n_subs
+        n_per = round(n_subs / n_folds)
+        if n_folds == 1:
+            val_subs = []
+        elif fold < n_folds - 1:
+            val_subs = np.arange(n_per * fold, n_per * (fold + 1))
+        else:
+            val_subs = np.arange(n_per * fold, n_subs)
+        train_subs = list(set(np.arange(n_subs)) - set(val_subs))
+        
+        dm = MultiDataModule([cfg.data_val], fold, n_folds, num_workers=cfg.train.num_workers,
+                            n_pairs=cfg.train.n_pairs_finetune,
+                            sub_list_pre = [[val_subs, train_subs]]
+                            # small group for finetune, majority for validation
         )
 
-        # n_per = round(cfg.data_val.n_subs / n_folds)
-        # if n_folds == 1:
-        #     val_subs = []
-        # elif fold < n_folds - 1:
-        #     val_subs = np.arange(n_per * fold, n_per * (fold + 1))
-        # else:
-        #     val_subs = np.arange(n_per * fold, cfg.data_val.n_subs)            
-        # train_subs = list(set(np.arange(cfg.data_val.n_subs)) - set(val_subs))
-        # if len(val_subs) == 1:
-        #     val_subs = list(val_subs) + train_subs
-        # print('train_subs:', train_subs)
-        # print('val_subs:', val_subs)
-        
-        # # load_dir = os.path.join(cfg.data.data_dir,'processed_data')
-        # # save_dir = os.path.join(cfg.data.data_dir,'sliced_data')
-        # if cfg.data_val.dataset_name == 'FACED':
-        #     if cfg.data_val.n_class == 2:
-        #         n_vids = 24
-        #     elif cfg.data_val.n_class == 9:
-        #         n_vids = 28
-        # else:
-        #     n_vids = cfg.data_val.n_vids
-        # train_vids = np.arange(n_vids)
-        # val_vids = np.arange(n_vids)
-
-        # dm = EEGDataModule(cfg.data_val, train_subs, val_subs, train_vids, val_vids,
-        #                    cfg.train.valid_method=='loo', cfg.train.num_workers)
-        
         dm.setup("fit")
 
-    # 2. define channel_specific encoder
+        checkpoint =  os.path.join(cfg.log.logpath, cfg.log.proj_name, 'base.ckpt')
         
-
-    # 3. define non-linear covariance alignment module
-
-    # 4. define loss
-        model = MultiModel_PL(cfg)
+        log.info('checkpoint load from: '+checkpoint)
+        model = MultiModel_PL.load_from_checkpoint(checkpoint_path=checkpoint, cfg=cfg)
+        model.phase = 'finetune'
 
         total_params = sum(p.numel() for p in model.parameters())
         total_size = sum(p.numel() * p.element_size() for p in model.parameters())
@@ -105,12 +88,12 @@ def run_pipeline(cfg: DictConfig):
         es_monitor = "loss_total/train" if n_folds == 1 else "loss_total/val"
         cp_dir = os.path.join(cfg.log.logpath, cfg.log.proj_name)
         checkpoint_callback = ModelCheckpoint(monitor=cp_monitor, mode="min", verbose=True, dirpath=cp_dir, 
-                                            filename=f'base')
+                                            filename=f'f{fold}_tuned')
         earlyStopping_callback = EarlyStopping(monitor=es_monitor, mode="min", patience=cfg.train.patience)
         limit_val_batches = 0.0 if n_folds == 1 else 1.0
         trainer = pl.Trainer(
             logger=logger,
-            callbacks=[checkpoint_callback, earlyStopping_callback, CovResetCallback(n_channel_uni = cfg.align.n_channel_uni)],
+            callbacks=[checkpoint_callback, earlyStopping_callback],
             max_epochs=cfg.train.max_epochs, min_epochs=cfg.train.min_epochs, 
             accelerator='gpu', devices=cfg.train.gpus, limit_val_batches=limit_val_batches,
             accumulate_grad_batches=cfg.train.grad_accumulation

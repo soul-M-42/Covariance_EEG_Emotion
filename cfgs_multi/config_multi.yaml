@@ -53,15 +53,16 @@ log:
 
 train:
   n_fold: 1
-  n_pairs: 1024
+  n_pairs: 8
+  n_pairs_finetune: 1024
   gpus: [0]
   iftest: False
-  valid_method: 'loo'
+  valid_method: 8
   # n_subs: ${data.n_subs}
   lr: 5e-4
   wd: 0.0001
   loss_temp: 0.07
-  max_epochs: 30
+  max_epochs: 2
   min_epochs: 2
   patience: 30
   restart_times: ${train.max_epochs}  # scheduler

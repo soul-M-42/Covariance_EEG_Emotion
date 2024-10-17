@@ -19,7 +19,7 @@ def get_train_subs(n_subs, fold, n_folds):
     else:
         val_subs = np.arange(n_per * fold, n_subs)
     train_subs = list(set(np.arange(n_subs)) - set(val_subs))
-    return train_subs, val_subs
+    return [train_subs, val_subs]
 
 
 class EEGSampler:
@@ -181,7 +181,7 @@ class MultiDataset(Dataset):
 
 
 class MultiDataModule(pl.LightningDataModule):
-    def __init__(self, data_list, fold, n_folds, n_pairs=256, num_workers=8, device='cpu'):
+    def __init__(self, data_list, fold, n_folds, n_pairs=256, num_workers=8, device='cpu', sub_list_pre = None):
         super().__init__()
         self.device = device
         self.n_pairs = n_pairs
@@ -194,15 +194,17 @@ class MultiDataModule(pl.LightningDataModule):
         self.datasets = []
         self.fold = fold
         self.n_folds = n_folds
+        self.sub_list_pre = [None] * len(data_list) if sub_list_pre is None else sub_list_pre
 
     def prepare_data(self) -> None:
         pass
 
     def setup(self, stage=None):
-        for data_cfg in self.data_list:
-            train_subs, val_subs = get_train_subs(data_cfg.n_subs, self.fold, self.n_folds)
+        for index, data_cfg in enumerate(self.data_list):
+            [train_subs, val_subs] = get_train_subs(data_cfg.n_subs, self.fold, self.n_folds) if self.sub_list_pre[index] is None else [self.sub_list_pre[index][0], self.sub_list_pre[index][1]]
             self.train_subs_list.append(train_subs)
             self.val_subs_list.append(val_subs)
+            print(f'dataset {index} \n train sub: {train_subs} \n val sub: {val_subs}')
 
         if stage == 'fit' or stage is None:
             self.trainsets = []

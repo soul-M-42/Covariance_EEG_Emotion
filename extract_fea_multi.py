@@ -75,7 +75,7 @@ def ext_fea(cfg: DictConfig) -> None:
             foldset = SEEDV_Dataset(data2_fold, label2_fold)
             del data2_fold, label2_fold
             fold_loader = DataLoader(foldset, batch_size=cfg.ext_fea.batch_size, shuffle=False, num_workers=cfg.train.num_workers)
-            checkpoint =  os.path.join(cfg.log.logpath, cfg.log.proj_name, '*.ckpt')
+            checkpoint =  os.path.join(cfg.log.logpath, cfg.log.proj_name, f'f{fold}_tuned.ckpt')
             checkpoint = glob.glob(checkpoint)[0]
             
             log.info('checkpoint load from: '+checkpoint)
