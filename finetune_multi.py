@@ -44,8 +44,8 @@ def run_pipeline(cfg: DictConfig):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     
-    n_folds = cfg.data_val.n_subs if cfg.train.valid_method == 'loo' else cfg.train.valid_method
-    for fold in range(n_folds):
+    n_folds = cfg.data_val.n_subs if cfg.finetune.valid_method == 'loo' else cfg.finetune.valid_method
+    for fold in range(6, n_folds):
         print(f'fold {fold}\n')
         run_name = f'{cfg.log.proj_name}'
         save_dir = os.path.join(os.getcwd(), cfg.log.logpath, run_name, str(fold))
@@ -54,7 +54,7 @@ def run_pipeline(cfg: DictConfig):
             if(cfg.log.is_logger):
                 os.makedirs(save_dir)
                 logger = TensorBoardLogger(save_dir=save_dir, name=run_name)
-        # dm = MultiEEGDataModule(cfg.data_1, cfg.data_2, fold, n_folds, batch_size=cfg.train.batch_size, num_workers=cfg.train.num_workers,
+        # dm = MultiEEGDataModule(cfg.data_1, cfg.data_2, fold, n_folds, batch_size=cfg.finetune.batch_size, num_workers=cfg.finetune.num_workers,
         #                         device=cfg.align.device)
         n_subs = cfg.data_val.n_subs
         n_per = round(n_subs / n_folds)
@@ -65,10 +65,12 @@ def run_pipeline(cfg: DictConfig):
         else:
             val_subs = np.arange(n_per * fold, n_subs)
         train_subs = list(set(np.arange(n_subs)) - set(val_subs))
+        if cfg.train.reverse:
+            train_subs, val_subs = val_subs, train_subs
         
-        dm = MultiDataModule([cfg.data_val], fold, n_folds, num_workers=cfg.train.num_workers,
-                            n_pairs=cfg.train.n_pairs_finetune,
-                            sub_list_pre = [[val_subs, train_subs]]
+        dm = MultiDataModule([cfg.data_val], fold, n_folds, num_workers=cfg.finetune.num_workers,
+                            n_pairs=cfg.finetune.n_pairs,
+                            sub_list_pre = [[train_subs, val_subs]]
                             # small group for finetune, majority for validation
         )
 
@@ -78,7 +80,7 @@ def run_pipeline(cfg: DictConfig):
         
         log.info('checkpoint load from: '+checkpoint)
         model = MultiModel_PL.load_from_checkpoint(checkpoint_path=checkpoint, cfg=cfg)
-        model.phase = 'finetune'
+        model.set_phase('finetune')
 
         total_params = sum(p.numel() for p in model.parameters())
         total_size = sum(p.numel() * p.element_size() for p in model.parameters())
@@ -89,14 +91,14 @@ def run_pipeline(cfg: DictConfig):
         cp_dir = os.path.join(cfg.log.logpath, cfg.log.proj_name)
         checkpoint_callback = ModelCheckpoint(monitor=cp_monitor, mode="min", verbose=True, dirpath=cp_dir, 
                                             filename=f'f{fold}_tuned')
-        earlyStopping_callback = EarlyStopping(monitor=es_monitor, mode="min", patience=cfg.train.patience)
+        earlyStopping_callback = EarlyStopping(monitor=es_monitor, mode="min", patience=cfg.finetune.patience)
         limit_val_batches = 0.0 if n_folds == 1 else 1.0
         trainer = pl.Trainer(
             logger=logger,
             callbacks=[checkpoint_callback, earlyStopping_callback],
-            max_epochs=cfg.train.max_epochs, min_epochs=cfg.train.min_epochs, 
-            accelerator='gpu', devices=cfg.train.gpus, limit_val_batches=limit_val_batches,
-            accumulate_grad_batches=cfg.train.grad_accumulation
+            max_epochs=cfg.finetune.max_epochs, min_epochs=cfg.finetune.min_epochs, 
+            accelerator='gpu', devices=cfg.finetune.gpus, limit_val_batches=limit_val_batches,
+            accumulate_grad_batches=cfg.finetune.grad_accumulation
             )
         trainer.fit(model, dm)
 

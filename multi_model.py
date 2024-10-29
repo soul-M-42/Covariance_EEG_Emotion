@@ -800,7 +800,17 @@ class MultiModel_PL(pl.LightningModule):
         # scheduler1 = torch.optim.lr_scheduler.StepLR(optimizer, step_size=self.max_epochs, gamma=0.8, last_epoch=-1, verbose=False)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=self.max_epochs // self.restart_times, eta_min=0,last_epoch=-1)
         return {'optimizer': optimizer, 'lr_scheduler': scheduler}
-    
+    def set_phase(self, phase):
+        self.phase = phase
+        if phase == 'train':
+            self.lr = self.cfg.train.lr
+            self.wd = self.cfg.train.wd    
+        elif phase == 'finetune':
+            self.lr = self.cfg.finetune.lr
+            self.wd = self.cfg.finetune.wd
+            self.proj.requires_grad_(False)
+            self.channelwiseEncoder.requires_grad_(False)
+        return
     # remain to be implemented
     def training_step(self, batch, batch_idx):
         if self.phase == 'train':
@@ -816,7 +826,7 @@ class MultiModel_PL(pl.LightningModule):
 
             fea_1, fea_clisa_1 = self.forward(x_1, '1')
             fea_2, fea_clisa_2 = self.forward(x_2, '2')
-            fea_3, fea_clisa_3 = self.forward(x_3, '3')
+            # fea_3, fea_clisa_3 = self.forward(x_3, '3')
             
             cov_1 = torch.mean(self.cov_mat(fea_1), dim=0) / self.cfg.train.n_pairs
             cov_2 = torch.mean(self.cov_mat(fea_2), dim=0) / self.cfg.train.n_pairs
@@ -824,7 +834,7 @@ class MultiModel_PL(pl.LightningModule):
                 self.cov_1_mean += cov_1  # 使用 in-place 加法操作
                 self.cov_2_mean += cov_2  # 使用 in-place 加法操作
 
-            save_batch_images(torch.stack([self.cov_1_mean, self.cov_2_mean]), 'cov_mean_extractor')
+            # save_batch_images(torch.stack([self.cov_1_mean, self.cov_2_mean]), 'cov_mean_extractor')
 
 
             loss = 0
@@ -906,10 +916,10 @@ class MultiModel_PL(pl.LightningModule):
                 loss_align = 0
                 cov_1 = self.cov_mat(fea_1)
                 cov_2 = self.cov_mat(fea_2)
-                cov_3 = self.cov_mat(fea_3)
+                # cov_3 = self.cov_mat(fea_3)
                 loss_align = loss_align + self.CDA_loss(cov_1, cov_2)
-                loss_align = loss_align + self.CDA_loss(cov_1.detach(), cov_3)
-                loss_align = loss_align + self.CDA_loss(cov_2.detach(), cov_3)
+                # loss_align = loss_align + self.CDA_loss(cov_1.detach(), cov_3)
+                # loss_align = loss_align + self.CDA_loss(cov_2.detach(), cov_3)
                 # print(f'loss_align={loss_align}')
                 self.log_dict({
                     'loss_align/val': loss_align,    
@@ -940,18 +950,18 @@ class MultiModel_PL(pl.LightningModule):
             fea_3, fea_clisa_3 = self.forward(x_3, '3')
             loss_clisa_3, acc1_3, acc5_3 = self.loss_clisa_fea(fea_clisa_3)
             cov_3 = self.cov_mat(fea_3)
+            cen_3 = self.get_ind_cen(cov_3)
             dis = 0
-            for cov_i in cov_3:
-                dis = dis + self.frobenius_distance(cov_i, self.cov_1_mean)
-                dis = dis + self.frobenius_distance(cov_i, self.cov_2_mean)
+            dis = dis + self.frobenius_distance(cen_3, self.cov_1_mean)
+            dis = dis + self.frobenius_distance(cen_3, self.cov_2_mean)
             loss_align = torch.log(dis + 1.0)
-            # print(f'loss align:{loss_align} loss_clisa:{loss_clisa_3}')
+            loss_align = 0
             loss = loss_align + loss_clisa_3
             self.log_dict({
                     'loss_align/train': loss_align, 
                     'loss_clisa/train': loss_clisa_3,   
                     'acc1_3/train': acc1_3,
-                    'loss_total/train': loss_align, 
+                    'loss_total/train': loss, 
                     },
                     logger=self.is_logger,
                     on_step=False, on_epoch=True, prog_bar=True)
@@ -1084,18 +1094,19 @@ class MultiModel_PL(pl.LightningModule):
             fea_3, fea_clisa_3 = self.forward(x_3, '3')
             loss_clisa_3, acc1_3, acc5_3 = self.loss_clisa_fea(fea_clisa_3)
             cov_3 = self.cov_mat(fea_3)
+            cen_3 = self.get_ind_cen(cov_3)
             dis = 0
-            for cov_i in cov_3:
-                dis = dis + self.frobenius_distance(cov_i, self.cov_1_mean)
-                dis = dis + self.frobenius_distance(cov_i, self.cov_2_mean)
+            dis = dis + self.frobenius_distance(cen_3, self.cov_1_mean)
+            dis = dis + self.frobenius_distance(cen_3, self.cov_2_mean)
             loss_align = torch.log(dis + 1.0)
+            # loss_align = 0
             # print(f'loss align:{loss_align} loss_clisa:{loss_clisa_3}')
             loss = loss_align + loss_clisa_3
             self.log_dict({
                     'loss_align/val': loss_align, 
                     'loss_clisa/val': loss_clisa_3,   
                     'acc1_3/val': acc1_3,
-                    'loss_total/val': loss_align, 
+                    'loss_total/val': loss, 
                     },
                     logger=self.is_logger,
                     on_step=False, on_epoch=True, prog_bar=True)

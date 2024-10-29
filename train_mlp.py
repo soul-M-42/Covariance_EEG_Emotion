@@ -24,7 +24,7 @@ def train_mlp(cfg: DictConfig) -> None:
     torch.backends.cudnn.benchmark = False
     
     if isinstance(cfg.train.valid_method, int):
-        n_folds = cfg.train.valid_method
+        n_folds = cfg.finetune.valid_method
     elif cfg.train.valid_method == 'loo':
         n_folds = cfg.data_val.n_subs
 
@@ -53,6 +53,8 @@ def train_mlp(cfg: DictConfig) -> None:
         # if len(val_subs) == 1:
         #     val_subs = list(val_subs) + train_subs
         # train_subs = finetune_subs
+        if cfg.train.reverse:
+            train_subs, val_subs = val_subs, train_subs
         log.info(f'finetune_subs:{train_subs}')
         log.info(f'val_subs:{val_subs}')
         

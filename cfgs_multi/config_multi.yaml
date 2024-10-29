@@ -43,7 +43,7 @@ log:
   # logpath: 'log'
   # logpath: 'log'
   run: 4
-  proj_name: 'val_SEEDV_align'
+  proj_name: 'SEEDV_align_test'
   # CDA for Cross Dataset Align
 
   exp_name: ${log.proj_name}
@@ -53,22 +53,41 @@ log:
 
 train:
   n_fold: 1
-  n_pairs: 8
+  n_pairs: 1024
   n_pairs_finetune: 1024
   gpus: [0]
   iftest: False
-  valid_method: 8
+  valid_method: 4
+  reverse: True
   # n_subs: ${data.n_subs}
   lr: 5e-4
   wd: 0.0001
   loss_temp: 0.07
-  max_epochs: 2
+  max_epochs: 30
   min_epochs: 2
   patience: 30
   restart_times: ${train.max_epochs}  # scheduler
   val_sub_p: 0.8
   grad_accumulation: 1
   num_workers: 127
+
+finetune:
+  n_pairs: 1024
+  gpus: [0]
+  iftest: False
+  valid_method: 8
+  # n_subs: ${data.n_subs}
+  lr: 5e-4
+  wd: 0.005
+  loss_temp: 0.07
+  max_epochs: 10
+  min_epochs: 2
+  patience: 30
+  restart_times: ${train.max_epochs}  # scheduler
+  val_sub_p: 0.8
+  grad_accumulation: 1
+  num_workers: 127
+
 
 
 mlp:
@@ -85,6 +104,7 @@ mlp:
   batch_size: 256
 
 ext_fea:
+  finetune: True
   normTrain: True
   batch_size: 256
   mode: 'me'

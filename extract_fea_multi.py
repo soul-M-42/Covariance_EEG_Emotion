@@ -36,8 +36,8 @@ def ext_fea(cfg: DictConfig) -> None:
     
     
     
-    if isinstance(cfg.train.valid_method, int):
-        n_folds = cfg.train.valid_method
+    if isinstance(cfg.finetune.valid_method, int):
+        n_folds = cfg.finetune.valid_method
     elif cfg.train.valid_method == 'loo':
         n_folds = cfg.data_val.n_subs
 
@@ -54,6 +54,8 @@ def ext_fea(cfg: DictConfig) -> None:
         train_subs = list(set(np.arange(cfg.data_val.n_subs)) - set(val_subs))
         # if len(val_subs) == 1:
         #     val_subs = list(val_subs) + train_subs
+        if cfg.train.reverse:
+            train_subs, val_subs = val_subs, train_subs
         log.info(f'train_subs:{train_subs}')
         log.info(f'val_subs:{val_subs}' )
         
@@ -75,7 +77,7 @@ def ext_fea(cfg: DictConfig) -> None:
             foldset = SEEDV_Dataset(data2_fold, label2_fold)
             del data2_fold, label2_fold
             fold_loader = DataLoader(foldset, batch_size=cfg.ext_fea.batch_size, shuffle=False, num_workers=cfg.train.num_workers)
-            checkpoint =  os.path.join(cfg.log.logpath, cfg.log.proj_name, f'f{fold}_tuned.ckpt')
+            checkpoint =  os.path.join(cfg.log.logpath, cfg.log.proj_name, f'f{fold}_tuned.ckpt' if cfg.ext_fea.finetune else 'base.ckpt')
             checkpoint = glob.glob(checkpoint)[0]
             
             log.info('checkpoint load from: '+checkpoint)
