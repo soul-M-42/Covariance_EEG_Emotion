@@ -3,7 +3,7 @@ transformers==4.45.2
 timm==1.0.9
 pytorch_lightning==2.4.0
 tqdm==4.66.5
-scipy==1.14.1
+scipy
 mne==1.8.0
 wandb==0.18.3
 hdf5storage==0.1.19

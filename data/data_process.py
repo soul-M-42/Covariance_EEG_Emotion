@@ -238,8 +238,8 @@ def running_norm_onesubsession(data,data_mean,data_var,decay_rate):
         curr_mean = decay_factor*data_mean + (1-decay_factor)*running_mean
         curr_var = decay_factor*data_var + (1-decay_factor)*np.maximum(running_var,0)
         decay_factor = decay_factor*decay_rate
+        data_one = (data_one - curr_mean) / np.sqrt(curr_var + 1e-10)
         
-        data_one = (data_one - curr_mean) / np.sqrt(curr_var + 1e-50)
         data_norm[counter, :] = data_one
     return data_norm
 

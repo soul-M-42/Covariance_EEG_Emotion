@@ -285,6 +285,7 @@ class Conv_att_simple_new(nn.Module):
         # # self.flatten = nn.Flatten()
     
     def forward(self, input):
+        # input.shape should be [B, dim, n_channel, T]
         if 'initial' in self.stratified:
             input = stratified_layerNorm(input, int(input.shape[0]/2))
         out = self.timeConv(input)
@@ -295,6 +296,7 @@ class Conv_att_simple_new(nn.Module):
         out4 = self.msConv4(F.pad(out, (int(p[3]//2), p[3]-int(p[3]//2)), "constant", 0))
         # print(out1.shape, out2.shape, out3.shape, out4.shape)
         out = torch.cat((out1, out2, out3, out4), 1) # (B, dims, 1, T)
+        print(out.shape)
 
         # Attention
         if self.has_att:
@@ -313,7 +315,7 @@ class Conv_att_simple_new(nn.Module):
             if self.extract_mode == 'me':
                 out = F.relu(out)
 
-
+        return out
         if self.saveFea:
             return out
         else:         # projecter

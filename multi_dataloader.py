@@ -225,13 +225,13 @@ class MultiDataModule(pl.LightningDataModule):
                 self.valsets.append(valset)
             self.valset = MultiDataset(self.valsets)
 
-    def train_dataloader(self) -> torch.Any:
+    def train_dataloader(self):
         self.trainsampler = EEGSampler(datasets=self.trainsets, n_pairs=self.n_pairs)
         self.trainloader = DataLoader(self.trainset, sampler=self.trainsampler,
                                       pin_memory=True, num_workers=self.num_workers)
         return self.trainloader
 
-    def val_dataloader(self) -> torch.Any:
+    def val_dataloader(self):
         self.valsampler = EEGSampler(datasets=self.valsets, n_pairs=int(self.n_pairs // 4))
         self.valloader = DataLoader(self.valset, sampler=self.valsampler,
                                     pin_memory=True, num_workers=self.num_workers)

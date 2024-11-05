@@ -93,13 +93,50 @@ class LinearAttention(nn.Module):
 
         return x
 
+
+class vanillaMultiHeadAtt(nn.Module):
+    """Optimized Linear Attention with LePE and RoPE."""
+
+    def __init__(self, dim, num_heads, qkv_bias=True):
+        super().__init__()
+        self.dim = dim
+        self.num_heads = num_heads
+        self.head_dim = dim // num_heads
+        self.scale = self.head_dim ** -0.5
+
+        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.elu = nn.ELU()
+        self.lepe = nn.Conv1d(dim, dim, kernel_size=3, padding=1, groups=dim)
+        self.rope = RoPE(dim=self.head_dim, max_seq_len=512, base=10000)
+        self.att = nn.MultiheadAttention(embed_dim=dim, num_heads=num_heads, batch_first=True)
+
+    def forward(self, x):
+        """
+        Args:
+            x: input features with shape of (B, N, C)
+        """
+        B, N, C = x.shape
+        H = self.num_heads
+        D = self.head_dim
+
+        # Compute Q, K, V
+        qkv = self.qkv(x).reshape(B, N, 3, C).permute(2, 0, 1, 3)
+        q, k, v = qkv[0], qkv[1], qkv[2]
+        attn_output, attn_output_weights = self.att(q, k, v)
+
+
+        x = attn_output + x  # (B, N, C)
+
+        return x
+
 class MLLA_EEG_Block(nn.Module):
-    def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=True, drop=0., drop_path=0.,
+    def __init__(self, dim, num_heads, mlp_ratio=1., qkv_bias=True, drop=0., drop_path=0.,
                  act_layer=nn.GELU):
         super().__init__()
         self.cpe = nn.Conv1d(dim, dim, kernel_size=3, padding=1, groups=dim)
         self.norm1 = nn.LayerNorm(dim)
         self.attn = LinearAttention(dim=dim, num_heads=num_heads, qkv_bias=qkv_bias)
+        # self.attn = vanillaMultiHeadAtt(dim=dim, num_heads=num_heads, qkv_bias=qkv_bias)
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = nn.LayerNorm(dim)
         self.mlp = Mlp(in_features=dim, hidden_features=int(dim * mlp_ratio),
@@ -150,30 +187,3 @@ class MLLA_BasicLayer(nn.Module):
             x = blk(x)
         x = F.relu(self.read_out(x))
         return x
-
-# # Example usage:
-# if __name__ == "__main__":
-#     # Device configuration
-#     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-#     # Model parameters
-#     in_dim = 128
-#     hidden_dim = 256
-#     out_dim = 64
-#     depth = 2
-#     num_heads = 8
-#     drop_path = 0.1
-#     batch_size = 32
-#     seq_length = 100
-
-#     # Create a sample input tensor
-#     x = torch.randn(batch_size, seq_length, in_dim).to(device)
-
-#     # Initialize the model
-#     model = MLLA_BasicLayer(in_dim, hidden_dim, out_dim, depth, num_heads, drop_path).to(device)
-#     model.eval()  # Set the model to evaluation mode
-
-#     # Inference
-#     with torch.no_grad():
-#         output = model(x)
-#     print("Output shape:", output.shape)

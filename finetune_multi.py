@@ -45,7 +45,7 @@ def run_pipeline(cfg: DictConfig):
     torch.backends.cudnn.benchmark = False
     
     n_folds = cfg.data_val.n_subs if cfg.finetune.valid_method == 'loo' else cfg.finetune.valid_method
-    for fold in range(6, n_folds):
+    for fold in range(n_folds):
         print(f'fold {fold}\n')
         run_name = f'{cfg.log.proj_name}'
         save_dir = os.path.join(os.getcwd(), cfg.log.logpath, run_name, str(fold))

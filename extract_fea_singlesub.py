@@ -24,11 +24,11 @@ log = logging.getLogger(__name__)
 def ext_fea(cfg: DictConfig) -> None:
     load_dir = os.path.join(cfg.data_val.data_dir,'processed_data')
     print('data loading...')
-    data2, onesub_label2, n_samples2_onesub, n_samples2_sessions = load_finetune_EEG_data(load_dir, cfg.data_val)
+    data_all, onesub_label2, n_samples2_onesub, n_samples2_sessions = load_finetune_EEG_data(load_dir, cfg.data_val)
     print('data loaded')
-    print(f'data ori shape:{data2.shape}')
+    print(f'data ori shape:{data_all.shape}')
     #data2 shape (n_subs,session*vid*n_samples, n_chans, n_pionts)
-    data2 = data2.reshape(cfg.data_val.n_subs, -1, data2.shape[-2], data2.shape[-1])
+    data_all = data_all.reshape(cfg.data_val.n_subs, -1, data_all.shape[-2], data_all.shape[-1])
     save_dir = os.path.join(cfg.data_val.data_dir,'ext_fea')
     if not os.path.exists(save_dir):
         os.makedirs(save_dir) 
@@ -43,25 +43,13 @@ def ext_fea(cfg: DictConfig) -> None:
 
     n_per = round(cfg.data_val.n_subs / n_folds)
     
-    for fold in range(0,n_folds):
-        log.info(f"fold:{fold}")
-        if n_folds == 1:
-            val_subs = []
-        elif fold < n_folds - 1:
-            val_subs = np.arange(n_per * fold, n_per * (fold + 1))
-        else:
-            val_subs = np.arange(n_per * fold, cfg.data_val.n_subs)            
-        train_subs = list(set(np.arange(cfg.data_val.n_subs)) - set(val_subs))
-        # if len(val_subs) == 1:
-        #     val_subs = list(val_subs) + train_subs
-        if cfg.train.reverse:
-            train_subs, val_subs = val_subs, train_subs
-        log.info(f'train_subs:{train_subs}')
-        log.info(f'val_subs:{val_subs}' )
+    for fold in range(cfg.data_val.n_subs):
+        log.info(f"sub:{fold}")
         
+        train_subs = [fold]
 
-
-        data2_train = data2[train_subs] # (subs,vid*n_samples, 62, 1250)
+        data2_train = data_all[train_subs] # (subs,vid*n_samples, 62, 1250)
+        data2 = data2_train
         
         # print(data2[0,0])
         if cfg.ext_fea.normTrain:
@@ -73,7 +61,7 @@ def ext_fea(cfg: DictConfig) -> None:
         if cfg.ext_fea.use_pretrain:
             log.info('Use pretrain model:')
             data2_fold = data2_fold.reshape(-1, data2_fold.shape[-2], data2_fold.shape[-1])
-            label2_fold = np.tile(onesub_label2, cfg.data_val.n_subs)
+            label2_fold = np.tile(onesub_label2, 1)
             foldset = SEEDV_Dataset(data2_fold, label2_fold)
             del data2_fold, label2_fold
             fold_loader = DataLoader(foldset, batch_size=cfg.ext_fea.batch_size, shuffle=False, num_workers=cfg.train.num_workers)
@@ -113,7 +101,7 @@ def ext_fea(cfg: DictConfig) -> None:
             fea = cal_fea(pred,cfg.ext_fea.mode)
             print(f'after cal_fea:{fea.shape}')
             # print('fea0:',fea[0])
-            fea = fea.reshape(cfg.data_val.n_subs,-1,fea.shape[-1])
+            fea = fea.reshape(1,-1,fea.shape[-1])
             
         else:
             #data2_fold shape (n_subs,session*vid*n_samples, n_chans, n_pionts)
@@ -135,11 +123,11 @@ def ext_fea(cfg: DictConfig) -> None:
                         data_video_filt = data_video_filt.reshape(n_chans, -1, sfreqs)
                         de_onevid = 0.5*np.log(2*np.pi*np.exp(1)*(np.var(data_video_filt, 2))).T
                         de_data[sub,  n_samples2_onesub_cum[vid]:n_samples2_onesub_cum[vid+1], :, idx] = de_onevid
-            fea = de_data.reshape(n_subs, n_samples, -1)
+            fea = de_data.reshape(1, n_samples, -1)
         log.debug(fea.shape)    
         
-        fea_train = fea[train_subs]
-        # print(fea_train.shape)
+        fea_train = fea[0]
+        
         data_mean = np.mean(np.mean(fea_train, axis=1),axis=0)
         data_var = np.mean(np.var(fea_train, axis=1),axis=0)
         # print('fea_mean:',data_mean) 
@@ -168,8 +156,9 @@ def ext_fea(cfg: DictConfig) -> None:
         n_sample_sum_sessions_cum = np.concatenate((np.array([0]), np.cumsum(n_sample_sum_sessions)))
         # save_batch_images(fea[:, :1000, :], 'fea_before_norm')
         print(f'before norm:{fea.shape}')
+        # fea_processed = np.zeros_like(fea)
         log.info('running norm:')
-        for sub in range(cfg.data_val.n_subs):
+        for sub in range(1):
             log.debug(f'sub:{sub}')
             for s in  tqdm(range(len(n_sample_sum_sessions)), desc=f'running norm sub: {sub}', leave=False):
                 fea[sub,n_sample_sum_sessions_cum[s]:n_sample_sum_sessions_cum[s+1]] = running_norm_onesubsession(
@@ -187,6 +176,7 @@ def ext_fea(cfg: DictConfig) -> None:
             log.warning("There are nan values in the array")
         else:
             log.info('no nan')
+        save_batch_images(fea[:, :1000, :], 'fea_after_LDS')
 
         # order back
         if cfg.data_val.dataset_name == 'FACED':
@@ -194,14 +184,14 @@ def ext_fea(cfg: DictConfig) -> None:
         
         n_samples2_onesub_cum = np.concatenate((np.array([0]), np.cumsum(n_samples2_onesub)))
         # LDS
-        log.info('LDS:')
-        for sub in range(cfg.data_val.n_subs):
-            log.debug(f'sub:{sub}')
-            for vid in tqdm(range(len(n_samples2_onesub)), desc=f'LDS Processing sub: {sub}', leave=False):
-                fea[sub,n_samples2_onesub_cum[vid]:n_samples2_onesub_cum[vid+1]] = LDS_gpu(fea[sub,n_samples2_onesub_cum[vid]:n_samples2_onesub_cum[vid+1]])
-            # print('LDS:',fea[sub,0])
-        fea = fea.reshape(-1,fea.shape[-1])
-        print(fea.shape)
+        # log.info('LDS:')
+        # for sub in range(1):
+        #     log.debug(f'sub:{sub}')
+        #     for vid in tqdm(range(len(n_samples2_onesub)), desc=f'LDS Processing sub: {sub}', leave=False):
+        #         fea[sub,n_samples2_onesub_cum[vid]:n_samples2_onesub_cum[vid+1]] = LDS_gpu(fea[sub,n_samples2_onesub_cum[vid]:n_samples2_onesub_cum[vid+1]])
+        #     # print('LDS:',fea[sub,0])
+        # fea = fea.reshape(-1,fea.shape[-1])
+        # print(fea.shape)
         
         
         # (8.32145433e-18-8.31764020e-18)/np.sqrt(4.01888196e-40)
@@ -218,8 +208,7 @@ def ext_fea(cfg: DictConfig) -> None:
         else:
             log.info('no nan')
 
-        save_path = os.path.join(save_dir,cfg.log.exp_name+f'_f{fold}_fea_{"pretrain_" if cfg.ext_fea.use_pretrain else ""}{cfg.ext_fea.mode if cfg.ext_fea.use_pretrain else "DE"}.npy'
-)
+        save_path = os.path.join(save_dir,cfg.log.exp_name+f'_sub{fold}_fea_{'pretrain_' if cfg.ext_fea.use_pretrain else ''}{cfg.ext_fea.mode if cfg.ext_fea.use_pretrain else 'DE'}.npy')
         # if not os.path.exists(cfg.ext_fea.save_dir):
         #     os.makedirs(cfg.ext_fea.save_dir)  
         np.save(save_path,fea)
@@ -240,7 +229,6 @@ def normTrain(data2,data2_train):
     return data2_normed
 
 def cal_fea(data,mode):
-    print(data.shape)
     if mode == 'de':
         # print(np.var(data, 3).squeeze()[0])
         fea = 0.5*np.log(2*np.pi*np.exp(1)*(np.var(data, 3)) + 1.0).squeeze()

@@ -321,7 +321,7 @@ def to_patch(data, patch_size=50, stride=25):
     return patches
 
 class   channel_MLLA(nn.Module):
-    def __init__(self, patch_size, hidden_dim, out_dim, depth, patch_stride, drop_path, n_filter, filterLen):
+    def __init__(self, patch_size, hidden_dim, out_dim, depth, patch_stride, drop_path, n_filter, filterLen, n_heads):
         super().__init__()
         self.patch_size = patch_size
         self.patch_stride = patch_stride
@@ -332,7 +332,7 @@ class   channel_MLLA(nn.Module):
         #                             for _ in range(self.n_channels)])
         self.encoder = MLLA_BasicLayer(
                                     in_dim=patch_size, hidden_dim=hidden_dim, out_dim=out_dim,
-                                    depth=depth, num_heads=8)
+                                    depth=depth, num_heads=n_heads)
 
     def forward(self, x):
         # print(x.shape)
@@ -385,7 +385,6 @@ class Channel_Alignment(nn.Module):
         out = F.relu(self.fc2(out))
         out = out.permute(0, 3, 2, 1)
         [B, C, out_dim, T] = out.shape
-        out = out.reshape(B, C*out_dim, 1, T)
         return out
 
 class Clisa_Proj(nn.Module):
@@ -397,7 +396,8 @@ class Clisa_Proj(nn.Module):
         
     def forward(self, x):
         out = x
-        # B, C, out_dim, T
+        [B, C, out_dim, T] = out.shape
+        out = out.reshape(B, C*out_dim, 1, T)
         # for c_i in range(C):
         #     data_channel_i = out[:, c_i, :, :].unsqueeze(1)
         #     data_channel_i = self.avgpool(data_channel_i)    # B*1*n_dim*t_pool
@@ -411,28 +411,74 @@ class Clisa_Proj(nn.Module):
         out = stratified_layerNorm(out, int(out.shape[0]/2))
         out = F.relu(self.timeConv1(out))
         out = F.relu(self.timeConv2(out))          #B*(n_dim*multiFact*multiFact)*1*t_pool
-        out = stratified_layerNorm(out, int(out.shape[0]/2))     
+        out = stratified_layerNorm(out, int(out.shape[0]/2))
         out = out.reshape(out.shape[0], -1)
         out = F.normalize(out, dim=1)
         return out
+    
+class sFilter(nn.Module):
+    def __init__(self, dim_in, n_channs, sFilter_timeLen, multiFact):
+        super().__init__()
+        self.conv1 = nn.Conv2d(dim_in, dim_in*multiFact, (n_channs, sFilter_timeLen), groups=dim_in)
+        
+    def forward(self, x):
+        # x.shape = [B, n_c, dim, T]
+        x = x.permute(0, 2, 1, 3)
+        # x.shape = [B, dim, n_c, T]
+        # out = self.conv1(x)
+        out = F.relu(self.conv1(x))
+        # x.shape = [B, dim, 1, T]
+        # out = stratified_layerNorm(out, int(out.shape[0]/2))
+        out = out.permute(0, 2, 1, 3)
+        return out
+
+
+
 
 class MultiModel_PL(pl.LightningModule):
     def __init__(self, cfg=None) -> None:
         super().__init__()
         self.cfg = cfg
-        self.channelwiseEncoder = channel_MLLA(
-            patch_size=cfg.channel_encoder.patch_size,
-            hidden_dim=cfg.channel_encoder.hidden_dim,
-            out_dim=cfg.channel_encoder.out_dim,
-            depth=cfg.channel_encoder.depth,
-            patch_stride=cfg.channel_encoder.patch_stride,
-            drop_path=cfg.channel_encoder.drop_path,
-            n_filter=cfg.channel_encoder.n_filter,
-            filterLen=cfg.channel_encoder.filterLen)
-        # self.channelwiseEncoder = channelwiseEncoder(n_filter=cfg.channel_encoder.out_dim, standard_channels=cfg.data_1.channels)
-        self.alignmentModule_1 = Channel_Alignment(cfg.data_1.n_channs, cfg.align.n_channel_uni)
-        self.alignmentModule_2 = Channel_Alignment(cfg.data_2.n_channs, cfg.align.n_channel_uni)
-        self.alignmentModule_3 = Channel_Alignment(cfg.data_val.n_channs, cfg.align.n_channel_uni)
+        if self.cfg.channel_encoder.model == 'MLLA':
+            self.channelwiseEncoder = channel_MLLA(
+                patch_size=cfg.channel_encoder.patch_size,
+                hidden_dim=cfg.channel_encoder.hidden_dim,
+                out_dim=cfg.channel_encoder.out_dim,
+                depth=cfg.channel_encoder.depth,
+                patch_stride=cfg.channel_encoder.patch_stride,
+                drop_path=cfg.channel_encoder.drop_path,
+                n_filter=cfg.channel_encoder.n_filter,
+                filterLen=cfg.channel_encoder.filterLen,
+                n_heads=cfg.channel_encoder.n_heads)
+            # self.channelwiseEncoder = channelwiseEncoder(n_filter=cfg.channel_encoder.out_dim, standard_channels=cfg.data_1.channels)
+            self.alignmentModule_1 = Channel_Alignment(cfg.data_1.n_channs, cfg.align.n_channel_uni)
+            self.alignmentModule_2 = Channel_Alignment(cfg.data_2.n_channs, cfg.align.n_channel_uni)
+            self.alignmentModule_3 = Channel_Alignment(cfg.data_val.n_channs, cfg.align.n_channel_uni)
+            self.sFilter = sFilter(dim_in=cfg.channel_encoder.out_dim, n_channs=cfg.align.n_channel_uni, sFilter_timeLen=3, multiFact=1)
+            self.proj = Clisa_Proj(n_dim_in=cfg.channel_encoder.out_dim)
+            # self.proj = Clisa_Proj(n_dim_in=cfg.align.n_channel_uni * cfg.channel_encoder.out_dim)
+        
+        if self.cfg.channel_encoder.model == 'cnn_att': 
+            self.channelwiseEncoder = Conv_att_simple_new(n_timeFilters=16,
+                                                    timeFilterLen=30,
+                                                    n_msFilters=4,
+                                                    msFilter_timeLen=3,
+                                                    n_channs=30,
+                                                    dilation_array=[1,3,6,12],
+                                                    seg_att=15,
+                                                    avgPoolLen=15,
+                                                    timeSmootherLen=3,
+                                                    multiFact=1,
+                                                    stratified=['initial', 'middle1', 'middle2'],
+                                                    activ='softmax',
+                                                    temp=1.0,
+                                                    saveFea=False,
+                                                    has_att=True,
+                                                    global_att=False)
+            self.alignmentModule_1 = nn.Identity()
+            self.alignmentModule_2 = nn.Identity()
+            self.alignmentModule_3 = nn.Identity()
+            self.proj = Clisa_Proj(n_dim_in=256)
         # self.decoder = ConvOut(in_shape=cfg.align.n_channel_uni)
         # self.decoder = ConvOut_Euclidean(out_channels=64)
         self.proto = None
@@ -444,30 +490,13 @@ class MultiModel_PL(pl.LightningModule):
         self.restart_times = cfg.train.restart_times
         self.is_logger = cfg.log.is_logger
         self.align_factor = cfg.align.factor
-        self.proj = Clisa_Proj(n_dim_in=cfg.align.n_channel_uni * cfg.channel_encoder.out_dim)
-        self.MLP_1 = MLP(input_dim=180, hidden_dim=64, out_dim=cfg.data_1.n_class)
-        self.MLP_2 = MLP(input_dim=180, hidden_dim=64, out_dim=cfg.data_2.n_class)
+        # self.MLP_1 = MLP(input_dim=180, hidden_dim=64, out_dim=cfg.data_1.n_class)
+        # self.MLP_2 = MLP(input_dim=180, hidden_dim=64, out_dim=cfg.data_2.n_class)
         # self.MLP_3 = MLP(input_dim=180, hidden_dim=64, out_dim=cfg.data_val.n_class)
         # self.dm = dm
         # self.train_dataset = dm.train_dataset
         # self.train_set_1 = self.train_dataset.dataset_a
         # self.train_set_2 = self.train_dataset.dataset_b
-        self.cnn_encoder = Conv_att_simple_new(n_timeFilters=16,
-                                                timeFilterLen=30,
-                                                n_msFilters=4,
-                                                msFilter_timeLen=3,
-                                                n_channs=30,
-                                                dilation_array=[1,3,6,12],
-                                                seg_att=15,
-                                                avgPoolLen=15,
-                                                timeSmootherLen=3,
-                                                multiFact=2,
-                                                stratified=['initial', 'middle1', 'middle2'],
-                                                activ='softmax',
-                                                temp=1.0,
-                                                saveFea=False,
-                                                has_att=True,
-                                                global_att=False)
         self.criterion = SimCLRLoss(cfg.train.loss_temp)
         self.saveFea = False
         self.cov_1_mean = nn.Parameter(torch.zeros([cfg.align.n_channel_uni, cfg.align.n_channel_uni]), requires_grad=False)
@@ -776,23 +805,19 @@ class MultiModel_PL(pl.LightningModule):
         return mat
     
     def forward(self, x, dataset='1'):
+        fea = self.channelwiseEncoder(x)
         if dataset == '1':
-            fea = self.channelwiseEncoder(x)
             out = self.alignmentModule_1(fea)
         if dataset == '2':
-            fea = self.channelwiseEncoder(x)
             out = self.alignmentModule_2(fea)
         if dataset == '3':
-            # # [B, C, T, out_dim]
-            # out = fea.permute(0, 1, 3, 2)
-            # [B, C, out_dim, T] = out.shape
-            # out = out.reshape(B, C*out_dim, 1, T)
-            fea = self.channelwiseEncoder(x)
-            out = self.alignmentModule_3(fea.detach())
+            out = self.alignmentModule_3(fea)
+        # [B, n_c, dim, T]
         if self.saveFea:
-            return out, out
+            pred = self.sFilter(out).permute(0, 2, 1, 3)
+            return pred
         else:         # projecter
-            return out, self.proj(out)
+            return out, self.proj(self.sFilter(out))
 
         return fea_1, fea_clisa_1
     def configure_optimizers(self):
@@ -810,6 +835,7 @@ class MultiModel_PL(pl.LightningModule):
             self.wd = self.cfg.finetune.wd
             self.proj.requires_grad_(False)
             self.channelwiseEncoder.requires_grad_(False)
+            self.sFilter.requires_grad_(False)
         return
     # remain to be implemented
     def training_step(self, batch, batch_idx):
@@ -955,8 +981,9 @@ class MultiModel_PL(pl.LightningModule):
             dis = dis + self.frobenius_distance(cen_3, self.cov_1_mean)
             dis = dis + self.frobenius_distance(cen_3, self.cov_2_mean)
             loss_align = torch.log(dis + 1.0)
-            loss_align = 0
-            loss = loss_align + loss_clisa_3
+            loss = loss_clisa_3
+            if(self.cfg.finetune.align):
+                loss = loss +loss_align
             self.log_dict({
                     'loss_align/train': loss_align, 
                     'loss_clisa/train': loss_clisa_3,   
@@ -1118,6 +1145,6 @@ class MultiModel_PL(pl.LightningModule):
         # fea_2 = self.cnn_encoder(x_2)
         # fea_3 = self.cnn_encoder(x_3)
 
-        fea, fea_clisa = self.forward(x, dataset='3')
+        fea = self.forward(x, dataset='3')
         return fea
     
