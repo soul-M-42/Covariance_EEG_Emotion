@@ -15,6 +15,7 @@ import random
 from utils_new import stratified_layerNorm, LDS_new
 from model.models import Conv_att_simple_new
 from model.loss.con_loss import SimCLRLoss
+from modules import DimAttentionModule, Clisa_Proj, Channel_mlp, Replace_Encoder, MLLA_encoder
 
 def logm(t):
     u, s, v = torch.svd(t) 
@@ -386,35 +387,6 @@ class Channel_Alignment(nn.Module):
         out = out.permute(0, 3, 2, 1)
         [B, C, out_dim, T] = out.shape
         return out
-
-class Clisa_Proj(nn.Module):
-    def __init__(self, n_dim_in, avgPoolLen=3, multiFact=2, timeSmootherLen=6):
-        super().__init__()
-        self.avgpool = nn.AvgPool2d((1, avgPoolLen))
-        self.timeConv1 = nn.Conv2d(n_dim_in, n_dim_in * multiFact, (1, timeSmootherLen), groups=n_dim_in)
-        self.timeConv2 = nn.Conv2d(n_dim_in * multiFact, n_dim_in * multiFact * multiFact, (1, timeSmootherLen), groups=n_dim_in * multiFact)
-        
-    def forward(self, x):
-        out = x
-        [B, C, out_dim, T] = out.shape
-        out = out.reshape(B, C*out_dim, 1, T)
-        # for c_i in range(C):
-        #     data_channel_i = out[:, c_i, :, :].unsqueeze(1)
-        #     data_channel_i = self.avgpool(data_channel_i)    # B*1*n_dim*t_pool
-        #     data_channel_i = stratified_layerNorm(data_channel_i, int(data_channel_i.shape[0]/2))
-        #     data_channel_i = F.relu(self.timeConv1(data_channel_i))
-        #     data_channel_i = F.relu(self.timeConv2(data_channel_i))          #B*(n_dim*multiFact*multiFact)*1*t_pool
-        #     data_channel_i = stratified_layerNorm(data_channel_i, int(data_channel_i.shape[0]/2))     
-        #     print(data_channel_i.shape)
-
-        out = self.avgpool(out)    # B*1*n_dim*t_pool
-        out = stratified_layerNorm(out, int(out.shape[0]/2))
-        out = F.relu(self.timeConv1(out))
-        out = F.relu(self.timeConv2(out))          #B*(n_dim*multiFact*multiFact)*1*t_pool
-        out = stratified_layerNorm(out, int(out.shape[0]/2))
-        out = out.reshape(out.shape[0], -1)
-        out = F.normalize(out, dim=1)
-        return out
     
 class sFilter(nn.Module):
     def __init__(self, dim_in, n_channs, sFilter_timeLen, multiFact):
@@ -455,15 +427,16 @@ class MultiModel_PL(pl.LightningModule):
             self.alignmentModule_2 = Channel_Alignment(cfg.data_2.n_channs, cfg.align.n_channel_uni)
             self.alignmentModule_3 = Channel_Alignment(cfg.data_val.n_channs, cfg.align.n_channel_uni)
             self.sFilter = sFilter(dim_in=cfg.channel_encoder.out_dim, n_channs=cfg.align.n_channel_uni, sFilter_timeLen=3, multiFact=1)
-            self.proj = Clisa_Proj(n_dim_in=cfg.channel_encoder.out_dim)
+            self.proj = Clisa_Proj(n_dim_in=cfg.channel_encoder.out_dim * cfg.align.n_channel_uni)
             # self.proj = Clisa_Proj(n_dim_in=cfg.align.n_channel_uni * cfg.channel_encoder.out_dim)
         
-        if self.cfg.channel_encoder.model == 'cnn_att': 
-            self.channelwiseEncoder = Conv_att_simple_new(n_timeFilters=16,
+        if self.cfg.channel_encoder.model == 'replace':
+            self.mlla = MLLA_encoder()
+            self.channelwiseEncoder = Replace_Encoder(n_timeFilters=16,
                                                     timeFilterLen=30,
                                                     n_msFilters=4,
                                                     msFilter_timeLen=3,
-                                                    n_channs=30,
+                                                    n_channs=cfg.align.n_channel_uni,
                                                     dilation_array=[1,3,6,12],
                                                     seg_att=15,
                                                     avgPoolLen=15,
@@ -475,10 +448,10 @@ class MultiModel_PL(pl.LightningModule):
                                                     saveFea=False,
                                                     has_att=True,
                                                     global_att=False)
-            self.alignmentModule_1 = nn.Identity()
-            self.alignmentModule_2 = nn.Identity()
-            self.alignmentModule_3 = nn.Identity()
             self.proj = Clisa_Proj(n_dim_in=256)
+            self.c_mlp_1 = Channel_mlp(cfg.data_1.n_channs, cfg.align.n_channel_uni)
+            self.c_mlp_2 = Channel_mlp(cfg.data_2.n_channs, cfg.align.n_channel_uni)
+            self.c_mlp_3 = Channel_mlp(cfg.data_val.n_channs, cfg.align.n_channel_uni)
         # self.decoder = ConvOut(in_shape=cfg.align.n_channel_uni)
         # self.decoder = ConvOut_Euclidean(out_channels=64)
         self.proto = None
@@ -804,22 +777,38 @@ class MultiModel_PL(pl.LightningModule):
         mat = self.frechet_mean(mat)
         return mat
     
-    def forward(self, x, dataset='1'):
-        fea = self.channelwiseEncoder(x)
-        if dataset == '1':
-            out = self.alignmentModule_1(fea)
-        if dataset == '2':
-            out = self.alignmentModule_2(fea)
-        if dataset == '3':
-            out = self.alignmentModule_3(fea)
-        # [B, n_c, dim, T]
-        if self.saveFea:
-            pred = self.sFilter(out).permute(0, 2, 1, 3)
-            return pred
-        else:         # projecter
-            return out, self.proj(self.sFilter(out))
+    def forward(self, x, dataset='1', mode = 'dev'):
+        if(mode == 'dev'):
+            x = self.mlla(x)
+            if dataset == '1':
+                x = self.c_mlp_1(x)
+            if dataset == '2':
+                x = self.c_mlp_2(x)
+            if dataset == '3':
+                x = self.c_mlp_3(x)
+            if self.saveFea:
+                self.channelwiseEncoder.saveFea = True
+            fea = self.channelwiseEncoder(x)
+            if self.saveFea:
+                return fea
+            else:         
+                return fea, fea
+        else:
+            fea = self.channelwiseEncoder(x)
+            if dataset == '1':
+                out = self.alignmentModule_1(fea)
+            if dataset == '2':
+                out = self.alignmentModule_2(fea)
+            if dataset == '3':
+                out = self.alignmentModule_1(fea)
+            # [B, n_c, dim, T]
+            out = self.dim_att(out)
+            if self.saveFea:
+                pred = self.sFilter(out).permute(0, 2, 1, 3)
+                return pred
+            else:         # projecter
+                return out, self.proj(out)
 
-        return fea_1, fea_clisa_1
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.wd)
         # scheduler1 = torch.optim.lr_scheduler.StepLR(optimizer, step_size=self.max_epochs, gamma=0.8, last_epoch=-1, verbose=False)
@@ -835,7 +824,8 @@ class MultiModel_PL(pl.LightningModule):
             self.wd = self.cfg.finetune.wd
             self.proj.requires_grad_(False)
             self.channelwiseEncoder.requires_grad_(False)
-            self.sFilter.requires_grad_(False)
+            self.mlla.requires_grad_(False)
+            # self.sFilter.requires_grad_(False)
         return
     # remain to be implemented
     def training_step(self, batch, batch_idx):
@@ -854,11 +844,11 @@ class MultiModel_PL(pl.LightningModule):
             fea_2, fea_clisa_2 = self.forward(x_2, '2')
             # fea_3, fea_clisa_3 = self.forward(x_3, '3')
             
-            cov_1 = torch.mean(self.cov_mat(fea_1), dim=0) / self.cfg.train.n_pairs
-            cov_2 = torch.mean(self.cov_mat(fea_2), dim=0) / self.cfg.train.n_pairs
-            with torch.no_grad():
-                self.cov_1_mean += cov_1  # 使用 in-place 加法操作
-                self.cov_2_mean += cov_2  # 使用 in-place 加法操作
+            # cov_1 = torch.mean(self.cov_mat(fea_1), dim=0) / self.cfg.train.n_pairs
+            # cov_2 = torch.mean(self.cov_mat(fea_2), dim=0) / self.cfg.train.n_pairs
+            # with torch.no_grad():
+            #     self.cov_1_mean += cov_1  # 使用 in-place 加法操作
+            #     self.cov_2_mean += cov_2  # 使用 in-place 加法操作
 
             # save_batch_images(torch.stack([self.cov_1_mean, self.cov_2_mean]), 'cov_mean_extractor')
 
@@ -975,14 +965,14 @@ class MultiModel_PL(pl.LightningModule):
             y_3 = y_3[0]
             fea_3, fea_clisa_3 = self.forward(x_3, '3')
             loss_clisa_3, acc1_3, acc5_3 = self.loss_clisa_fea(fea_clisa_3)
-            cov_3 = self.cov_mat(fea_3)
-            cen_3 = self.get_ind_cen(cov_3)
-            dis = 0
-            dis = dis + self.frobenius_distance(cen_3, self.cov_1_mean)
-            dis = dis + self.frobenius_distance(cen_3, self.cov_2_mean)
-            loss_align = torch.log(dis + 1.0)
             loss = loss_clisa_3
             if(self.cfg.finetune.align):
+                cov_3 = self.cov_mat(fea_3)
+                cen_3 = self.get_ind_cen(cov_3)
+                dis = 0
+                dis = dis + self.frobenius_distance(cen_3, self.cov_1_mean)
+                dis = dis + self.frobenius_distance(cen_3, self.cov_2_mean)
+                loss_align = torch.log(dis + 1.0)
                 loss = loss +loss_align
             self.log_dict({
                     'loss_align/train': loss_align, 
@@ -1120,15 +1110,15 @@ class MultiModel_PL(pl.LightningModule):
             y_3 = y_3[0]
             fea_3, fea_clisa_3 = self.forward(x_3, '3')
             loss_clisa_3, acc1_3, acc5_3 = self.loss_clisa_fea(fea_clisa_3)
-            cov_3 = self.cov_mat(fea_3)
-            cen_3 = self.get_ind_cen(cov_3)
-            dis = 0
-            dis = dis + self.frobenius_distance(cen_3, self.cov_1_mean)
-            dis = dis + self.frobenius_distance(cen_3, self.cov_2_mean)
-            loss_align = torch.log(dis + 1.0)
-            # loss_align = 0
-            # print(f'loss align:{loss_align} loss_clisa:{loss_clisa_3}')
-            loss = loss_align + loss_clisa_3
+            loss = loss_clisa_3
+            if(self.cfg.finetune.align):
+                cov_3 = self.cov_mat(fea_3)
+                cen_3 = self.get_ind_cen(cov_3)
+                dis = 0
+                dis = dis + self.frobenius_distance(cen_3, self.cov_1_mean)
+                dis = dis + self.frobenius_distance(cen_3, self.cov_2_mean)
+                loss_align = torch.log(dis + 1.0)
+                loss = loss +loss_align
             self.log_dict({
                     'loss_align/val': loss_align, 
                     'loss_clisa/val': loss_clisa_3,   

@@ -18,10 +18,10 @@ defaults:
 seed: 7
 
 channel_encoder:
-  model: 'MLLA'
+  model: 'replace'
   patch_size: 32
   hidden_dim: 128
-  out_dim: 256
+  out_dim: 4
   depth: 1
   patch_stride: 4
   drop_path: 0.1
@@ -35,7 +35,7 @@ align:
   n_channel_uni: 60
   to_riem: False
   proto_loss: False
-  align_loss: True
+  align_loss: False
   clisa_loss: True
   MLP_loss: False
 
@@ -45,7 +45,7 @@ log:
   # logpath: 'log'
   # logpath: 'log'
   run: 4
-  proj_name: MLLA_simple
+  proj_name: replace_align
   # CDA for Cross Dataset Align
 
   exp_name: ${log.proj_name}
@@ -64,8 +64,8 @@ train:
   lr: 5e-4
   wd: 0.0001
   loss_temp: 0.07
-  max_epochs: 30
-  min_epochs: 2
+  max_epochs: 20
+  min_epochs: 1
   patience: 30
   restart_times: ${train.max_epochs}  # scheduler
   val_sub_p: 0.8
@@ -81,14 +81,14 @@ finetune:
   lr: 5e-3
   wd: 0.005
   loss_temp: 0.07
-  max_epochs: 30
+  max_epochs: 20
   min_epochs: 2
   patience: 30
   restart_times: ${train.max_epochs}  # scheduler
   val_sub_p: 0.8
   grad_accumulation: 1
   num_workers: 127
-  align: True
+  align: False
 
 
 
