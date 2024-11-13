@@ -2,8 +2,8 @@
 defaults:
   - _self_
   # - data_1: SEEDV_small
+  - data@data_0: SEEDIV
   - data@data_1: SEED
-  # - data_1: SEEDV_small
   - data@data_2: FACED_blink_only
   # - data_2: FACED_blink_only_small
   # - data_2: SEEDV_small
@@ -35,7 +35,7 @@ align:
   n_channel_uni: 60
   to_riem: False
   proto_loss: False
-  align_loss: False
+  align_loss: True
   clisa_loss: True
   MLP_loss: False
 
@@ -45,7 +45,7 @@ log:
   # logpath: 'log'
   # logpath: 'log'
   run: 4
-  proj_name: replace_align
+  proj_name: cov_align
   # CDA for Cross Dataset Align
 
   exp_name: ${log.proj_name}
@@ -78,8 +78,8 @@ finetune:
   iftest: False
   valid_method: 4
   # n_subs: ${data.n_subs}
-  lr: 5e-3
-  wd: 0.005
+  lr: 5e-4
+  wd: 0.010
   loss_temp: 0.07
   max_epochs: 20
   min_epochs: 2
@@ -88,7 +88,7 @@ finetune:
   val_sub_p: 0.8
   grad_accumulation: 1
   num_workers: 127
-  align: False
+  align: True
 
 
 
@@ -106,7 +106,7 @@ mlp:
   batch_size: 512
 
 ext_fea:
-  finetune: True
+  finetune: False
   normTrain: True
   batch_size: 256
   mode: 'me'

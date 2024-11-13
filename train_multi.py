@@ -55,7 +55,7 @@ def run_pipeline(cfg: DictConfig):
                 logger = TensorBoardLogger(save_dir=save_dir, name=run_name)
         # dm = MultiEEGDataModule(cfg.data_1, cfg.data_2, fold, n_folds, batch_size=cfg.train.batch_size, num_workers=cfg.train.num_workers,
         #                         device=cfg.align.device)
-        dm = MultiDataModule([cfg.data_1, cfg.data_2, cfg.data_val], fold, n_folds, num_workers=cfg.train.num_workers,
+        dm = MultiDataModule([cfg.data_0, cfg.data_1, cfg.data_2, cfg.data_val], fold, n_folds, num_workers=cfg.train.num_workers,
                             n_pairs=cfg.train.n_pairs,
         )
 
