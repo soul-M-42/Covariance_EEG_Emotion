@@ -1,6 +1,7 @@
 log/
 log_trinity/
 log_small/
+wandb/
 doc/
 *.pyc
 *.ckpt
