@@ -6,6 +6,7 @@ doc/
 *.ckpt
 *.png
 *.mat
+*.log
 lightning_logs/
 clisa_run/
 wandb/
