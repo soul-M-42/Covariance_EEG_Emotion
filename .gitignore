@@ -5,6 +5,8 @@ doc/
 *.pyc
 *.ckpt
 *.png
+*.mat
 lightning_logs/
 clisa_run/
 wandb/
+cp/

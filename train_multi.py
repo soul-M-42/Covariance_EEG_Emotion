@@ -1,20 +1,21 @@
 import hydra
 from omegaconf import DictConfig
+import os
+os.environ["CUDA_VISIBLE_DEVICES"]="4"
+os.environ["WORLD_SIZE"]="1"
 import torch
 from model import ExtractorModel
 import numpy as np
 import pytorch_lightning as pl
 # from pytorch_lightning.loggers import WandbLogger
 # import wandb
-import os
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, Callback
 from multi_dataloader import MultiDataModule
 from multi_model import MultiModel_PL
 from data.pl_datamodule import EEGDataModule
 import logging
+from omegaconf import OmegaConf
 from pytorch_lightning.loggers import TensorBoardLogger
-# os.environ["CUDA_VISIBLE_DEVICES"]="3"
-# os.environ["WORLD_SIZE"]="1"
 
 class CovResetCallback(Callback):
     def __init__(self, n_channel_uni):
@@ -26,6 +27,7 @@ class CovResetCallback(Callback):
 
         # epoch_mean = torch.stack(pl_module.training_step_outputs).mean()
         # pl_module.log("training_epoch_mean", epoch_mean)
+        pl_module.cov_0_mean.data.zero_()
         pl_module.cov_1_mean.data.zero_()
         pl_module.cov_2_mean.data.zero_()
         print('cov reset!')
@@ -42,11 +44,18 @@ def run_pipeline(cfg: DictConfig):
     pl.seed_everything(cfg.seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-    
+
+    save_dir = os.path.join(os.getcwd(), cfg.log.logpath, cfg.log.proj_name)
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    run_name = f'{cfg.log.proj_name}'
+    config_save_path = os.path.join(save_dir, f"config_{run_name}.yaml")
+    OmegaConf.save(config=cfg, f=config_save_path)
+    print(f"Config saved to: {config_save_path}")
+
     n_folds = cfg.train.n_fold
     for fold in range(n_folds):
         print(f'fold {fold}\n')
-        run_name = f'{cfg.log.proj_name}'
         save_dir = os.path.join(os.getcwd(), cfg.log.logpath, run_name, str(fold))
         logger = None
         if not os.path.exists(save_dir):

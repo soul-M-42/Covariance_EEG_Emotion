@@ -9,6 +9,7 @@ import logging
 from sklearn.manifold import TSNE
 import random
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 
 log = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ def visualize_tsne(cfg: DictConfig) -> None:
 
         # Prepare data for t-SNE visualization
         features, labels, subjects = [], [], []
-        clip = 200
+        clip = 400
         mask = np.arange(n_sample)
         random.shuffle(mask)
         mask = mask[:clip]
@@ -86,7 +87,7 @@ def visualize_tsne(cfg: DictConfig) -> None:
 
         # Plot the t-SNE results colored by subjects
         plt.figure(figsize=(10, 8))
-        scatter = plt.scatter(features_2d[:, 0], features_2d[:, 1], c=subjects, cmap='tab20', alpha=0.7)
+        scatter = plt.scatter(features_2d[:, 0], features_2d[:, 1], c=subjects, cmap='tab10', alpha=0.7)
         plt.colorbar(scatter, label='Source Subjects')
         plt.title('t-SNE Visualization of Feature Distribution (Colored by Source Subjects)')
         plt.xlabel('t-SNE Component 1')
@@ -96,17 +97,23 @@ def visualize_tsne(cfg: DictConfig) -> None:
         plt.show()
         
         # Plot the t-SNE results colored by labels
+        unique_labels = np.unique(labels)
+        num_labels = len(unique_labels)
+        cmap = plt.get_cmap('hsv', num_labels)  # Use a color map with distinct colors for each label
+        norm = mcolors.BoundaryNorm(boundaries=np.arange(-0.5, num_labels + 0.5, 1), ncolors=num_labels)
+        
         plt.figure(figsize=(10, 8))
-        scatter = plt.scatter(features_2d[:, 0], features_2d[:, 1], c=labels, cmap='tab20', alpha=0.7)
-        plt.colorbar(scatter, label='Labels')
+        scatter = plt.scatter(features_2d[:, 0], features_2d[:, 1], c=labels, cmap=cmap, norm=norm, alpha=0.7)
+        cbar = plt.colorbar(scatter, ticks=np.arange(num_labels))
+        cbar.set_label('Labels')
+        cbar.set_ticks(unique_labels)
+        cbar.set_ticklabels(unique_labels)
         plt.title('t-SNE Visualization of Feature Distribution (Colored by Labels)')
         plt.xlabel('t-SNE Component 1')
         plt.ylabel('t-SNE Component 2')
         plt.grid(True)
         plt.savefig(os.path.join('./tsne_out', f'tsne_fold_{fold}_label.png'))
         plt.show()
-        
-        
         
         if cfg.train.iftest:
             break

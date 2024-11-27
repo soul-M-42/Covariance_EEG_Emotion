@@ -1,4 +1,6 @@
- 
+import os
+os.environ["CUDA_VISIBLE_DEVICES"]="2"
+os.environ["WORLD_SIZE"]="1"
 import numpy as np
 from data.io_utils import load_finetune_EEG_data, get_load_data_func, load_processed_SEEDV_NEW_data
 from data.data_process import running_norm_onesubsession, LDS, LDS_acc, LDS_gpu
@@ -11,7 +13,6 @@ from data.dataset import SEEDV_Dataset
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
 import torch
-import os
 from tqdm import tqdm
 import logging
 import mne
@@ -97,6 +98,8 @@ def ext_fea(cfg: DictConfig) -> None:
             pred = trainer.predict(Extractor, fold_loader)
             print(len)
             print(f'pred shape:{len(pred), pred[0].shape}')
+            # [256, 256, 1, 55]
+            # [B, out_dim, 1, T]
             # save_img(pred[0].permute(0, 3, 1, 2).reshape(256*16, 960)[:1000, :], 'fea_before_norm.png')
             # data
             # pred = torch.stack(pred,dim=0)

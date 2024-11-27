@@ -481,40 +481,43 @@ class MultiModel_PL(pl.LightningModule):
     def cov_mat(self, data):
         # data = (B, dim, C, T)
         [B, dim, C, T] = data.shape
-        data = data.reshape(B*dim, C, T)
         n_sample = B * dim
+        
+        # 重塑数据为形状(B * dim, C, T)，然后去均值中心化
+        data = data.reshape(n_sample, C, T)  # 形状: (n_sample, C, T)
+        data = data - data.mean(dim=2, keepdim=True)  # 均值中心化 (沿T维度)
 
-        # 减去均值，使数据中心化
-        cov_matrices = torch.zeros((n_sample, C, C))
-        for i, data_i in enumerate(data):
-            data_i = data_i - data_i.mean(dim=1, keepdim=True)
-            cov_i = (data_i @ data_i.T) / (n_sample - 1)
-            cov_matrices[i] = cov_i
+        # 计算协方差矩阵
+        # 这里使用 batch matrix multiplication (bmm) 来避免显式循环
+        cov_matrices = torch.bmm(data, data.transpose(1, 2)) / (T - 1)  # 形状: (n_sample, C, C)
 
         return cov_matrices
 
-
-    
-
     def frechet_mean(self, cov_matrices, tol=1e-5, max_iter=100):
-        centroid = torch.mean(cov_matrices, axis=0)
+        # Ensure the input is a GPU tensor
+        cov_matrices = cov_matrices.to('cuda') if not cov_matrices.is_cuda else cov_matrices
+        
+        centroid = torch.mean(cov_matrices, dim=0).to('cuda')
         for i in range(max_iter):
             prev_centroid = centroid.clone()
-            weights = torch.zeros(len(cov_matrices))
-            for j, cov_matrix in enumerate(cov_matrices):
-                weights[j] = 1.0 / self.frobenius_distance(cov_matrix, centroid)
+            
+            # Compute weights in a vectorized manner
+            distances = torch.linalg.norm(cov_matrices - centroid, dim=(1, 2), ord='fro')
+            weights = 1.0 / distances
             weights /= torch.sum(weights)
-            centroid = torch.zeros_like(centroid)
-            for j, cov_matrix in enumerate(cov_matrices):
-                centroid += weights[j] * cov_matrix
-            # 检查是否达到终止条件
-            total_dis = 0
-            for j, cov_matrix in enumerate(cov_matrices):
-                total_dis += self.frobenius_distance(cov_matrix, centroid)
-            delta = self.frobenius_distance(centroid, prev_centroid)
-            # print(f'Ite {i} total_dis {total_dis / cov_matrices.shape[0]} delta {delta}')
-            if self.frobenius_distance(centroid, prev_centroid) < tol:
+            
+            # Update centroid using the weights, avoiding explicit loops
+            centroid = torch.einsum('i,ijk->jk', weights, cov_matrices)
+            
+            # Check for convergence
+            delta = torch.linalg.norm(centroid - prev_centroid, ord='fro')
+            if delta < tol:
                 break
+        
+        # # Optional: Print optimized distance
+        # optimized_dis = torch.linalg.norm(torch.mean(cov_matrices, dim=0) - centroid, ord='fro')
+        # print(f'Optimized dis: {optimized_dis}')
+        
         return centroid
 
     # CDA for Cross_dataset Alignment
@@ -537,11 +540,14 @@ class MultiModel_PL(pl.LightningModule):
                 cen_j = ind_cen[j]
                 dis = dis + self.frobenius_distance(cen_i, cen_j)
         loss = torch.log(dis + 1.0)
-        return loss, self.get_ind_cen(cov_0), self.get_ind_cen(cov_1), self.get_ind_cen(cov_2)
+        cen_0 = self.get_ind_cen(torch.stack([ind_cen[0], ind_cen[1]]))
+        cen_1 = self.get_ind_cen(torch.stack([ind_cen[2], ind_cen[3]]))
+        cen_2 = self.get_ind_cen(torch.stack([ind_cen[4], ind_cen[5]]))
+        # save_img(torch.concat([cen_0, cen_1, cen_2]), 'cov_cen.png')
+        return loss, cen_0, cen_1, cen_2
 
     def frobenius_distance(self, matrix_a, matrix_b):
-        if not self.cfg.align.to_riem:
-            return torch.linalg.norm(matrix_a-matrix_b, 'fro')
+        return torch.linalg.norm(matrix_a-matrix_b, 'fro')
         # 计算Frobenius距离
         if matrix_a.shape != matrix_b.shape:
             raise ValueError("Must have same shape")
@@ -576,50 +582,50 @@ class MultiModel_PL(pl.LightningModule):
             prototype_init[i] = div_std(self.cov_mat(torch.randn(1, T_init, dim)))
         return nn.Parameter(prototype_init)
 
-    def loss_clisa(self, cov, emo_label):
-        if self.cfg.align.to_riem:
-            cov = logm(cov)
-        N, C, _ = cov.shape
-        n_vid = cov.shape[0] // 2
-        mat_a = cov.unsqueeze(0).repeat(N, 1, 1, 1)  # [N, N, C, C]
-        mat_b = cov.unsqueeze(1).repeat(1, N, 1, 1)  # [N, N, C, C]
-        similarity_matrix = -self.frobenius_distance(mat_a, mat_b)
+    # def loss_clisa(self, cov, emo_label):
+    #     if self.cfg.align.to_riem:
+    #         cov = logm(cov)
+    #     N, C, _ = cov.shape
+    #     n_vid = cov.shape[0] // 2
+    #     mat_a = cov.unsqueeze(0).repeat(N, 1, 1, 1)  # [N, N, C, C]
+    #     mat_b = cov.unsqueeze(1).repeat(1, N, 1, 1)  # [N, N, C, C]
+    #     similarity_matrix = -self.frobenius_distance(mat_a, mat_b)
         
-        # save_img(similarity_matrix, 'dis_pair.png')
-        # similarity_matrix = torch.zeros((cov.shape[0], cov.shape[0]))
-        labels = torch.cat([torch.arange(n_vid) for i in range(2)], dim=0)
-        labels = (labels.unsqueeze(0) == labels.unsqueeze(1)).float()
+    #     # save_img(similarity_matrix, 'dis_pair.png')
+    #     # similarity_matrix = torch.zeros((cov.shape[0], cov.shape[0]))
+    #     labels = torch.cat([torch.arange(n_vid) for i in range(2)], dim=0)
+    #     labels = (labels.unsqueeze(0) == labels.unsqueeze(1)).float()
 
         
-        # for i in range(cov.shape[0]):
-        #     for j in range(i, cov.shape[0]):
-        #         cov_i = cov[i]
-        #         cov_j = cov[j]
-        #         similarity_matrix[i][j] = -self.frobenius_distance(cov_i, cov_j)
-        #         similarity_matrix[j][i] = similarity_matrix[i][j]
+    #     # for i in range(cov.shape[0]):
+    #     #     for j in range(i, cov.shape[0]):
+    #     #         cov_i = cov[i]
+    #     #         cov_j = cov[j]
+    #     #         similarity_matrix[i][j] = -self.frobenius_distance(cov_i, cov_j)
+    #     #         similarity_matrix[j][i] = similarity_matrix[i][j]
 
-        mask = torch.eye(labels.shape[0], dtype=torch.bool)
-        labels = labels[~mask].view(labels.shape[0], -1)
-        similarity_matrix = similarity_matrix[~mask].view(similarity_matrix.shape[0], -1)
-        similarity_matrix = mean_to_zero(similarity_matrix)
-        similarity_matrix = div_std(similarity_matrix)
+    #     mask = torch.eye(labels.shape[0], dtype=torch.bool)
+    #     labels = labels[~mask].view(labels.shape[0], -1)
+    #     similarity_matrix = similarity_matrix[~mask].view(similarity_matrix.shape[0], -1)
+    #     similarity_matrix = mean_to_zero(similarity_matrix)
+    #     similarity_matrix = div_std(similarity_matrix)
 
-        # save_img(similarity_matrix, 'dis_pair.png')
-        # save_img(labels.detach().cpu(), 'label_pair.png')
+    #     # save_img(similarity_matrix, 'dis_pair.png')
+    #     # save_img(labels.detach().cpu(), 'label_pair.png')
 
-        positives = similarity_matrix[labels.bool()].view(labels.shape[0], -1)
-        negatives = similarity_matrix[~labels.bool()].view(similarity_matrix.shape[0], -1)
-        logits = torch.cat([negatives, positives], dim=1)
-        # save_img(logits, 'logits_rearranged.png')
-        labels = torch.ones(logits.shape[0], dtype=torch.long)*(logits.shape[1]-1)
-        num_classes = labels.max().item() + 1
-        # print(label)
-        label_onehot = torch.nn.functional.one_hot(labels, num_classes=num_classes)
-        # save_img(label_onehot, 'labels_rearranged.png')
+    #     positives = similarity_matrix[labels.bool()].view(labels.shape[0], -1)
+    #     negatives = similarity_matrix[~labels.bool()].view(similarity_matrix.shape[0], -1)
+    #     logits = torch.cat([negatives, positives], dim=1)
+    #     # save_img(logits, 'logits_rearranged.png')
+    #     labels = torch.ones(logits.shape[0], dtype=torch.long)*(logits.shape[1]-1)
+    #     num_classes = labels.max().item() + 1
+    #     # print(label)
+    #     label_onehot = torch.nn.functional.one_hot(labels, num_classes=num_classes)
+    #     # save_img(label_onehot, 'labels_rearranged.png')
 
-        CEloss = nn.CrossEntropyLoss()
-        pair_loss = CEloss(logits, labels)
-        return pair_loss
+    #     CEloss = nn.CrossEntropyLoss()
+    #     pair_loss = CEloss(logits, labels)
+    #     return pair_loss
 
     def restore_diagonal(self, matrix):
         n = matrix.shape[0]
@@ -678,69 +684,69 @@ class MultiModel_PL(pl.LightningModule):
 
 
 
-    def loss_proto(self, cov, label, protos):
-        # print(cov.shape)
-        # print(label.shape)
-        batch_size = cov.shape[0]
-        loss = 0
-        dis_mat = torch.zeros((batch_size, protos.shape[0]))
-        for i, cov_i in enumerate(cov):
-            # save_img(cov_i.detach().cpu(), 'cov_i.png')
-            for j, pro_j in enumerate(protos):
-                # pro_j = div_std(pro_j)
-                # print(is_spd(cov_i))
-                # print(is_spd(pro_j))
-                dis_mat[i][j] = -self.frobenius_distance(cov_i, pro_j)
-                # save_img(pro_j.detach().cpu(), 'pro_j.png')
-                # print(-dis_mat[i][j])
-            dis_mat[i] = div_std(dis_mat[i])
-            dis_mat[i] = mean_to_zero(dis_mat[i])
-            dis_mat[i] = F.softmax(dis_mat[i])
+    # def loss_proto(self, cov, label, protos):
+    #     # print(cov.shape)
+    #     # print(label.shape)
+    #     batch_size = cov.shape[0]
+    #     loss = 0
+    #     dis_mat = torch.zeros((batch_size, protos.shape[0]))
+    #     for i, cov_i in enumerate(cov):
+    #         # save_img(cov_i.detach().cpu(), 'cov_i.png')
+    #         for j, pro_j in enumerate(protos):
+    #             # pro_j = div_std(pro_j)
+    #             # print(is_spd(cov_i))
+    #             # print(is_spd(pro_j))
+    #             dis_mat[i][j] = -self.frobenius_distance(cov_i, pro_j)
+    #             # save_img(pro_j.detach().cpu(), 'pro_j.png')
+    #             # print(-dis_mat[i][j])
+    #         dis_mat[i] = div_std(dis_mat[i])
+    #         dis_mat[i] = mean_to_zero(dis_mat[i])
+    #         dis_mat[i] = F.softmax(dis_mat[i])
 
         
-        save_img(dis_mat.detach().cpu(), 'dis_pro.png')
-        num_classes = label.max().item() + 1
-        # print(label)
-        label_onehot = torch.nn.functional.one_hot(label, num_classes=num_classes)
-        save_img(label_onehot.detach().cpu(), 'label_pro.png')
+    #     save_img(dis_mat.detach().cpu(), 'dis_pro.png')
+    #     num_classes = label.max().item() + 1
+    #     # print(label)
+    #     label_onehot = torch.nn.functional.one_hot(label, num_classes=num_classes)
+    #     save_img(label_onehot.detach().cpu(), 'label_pro.png')
 
-        # print(dis_mat)
-        acc = self.top1_accuracy(dis_mat, label)
-        # dis_mat = F.log_softmax(dis_mat, dim=1)
-        CEloss = nn.CrossEntropyLoss()
-        # NLLLoss = nn.NLLLoss()
-        # loss = NLLLoss(dis_mat, label)
-        loss_ce = CEloss(dis_mat, label)
-        # print(loss)
-        # print(loss_ce)
-        # print(loss)
+    #     # print(dis_mat)
+    #     acc = self.top1_accuracy(dis_mat, label)
+    #     # dis_mat = F.log_softmax(dis_mat, dim=1)
+    #     CEloss = nn.CrossEntropyLoss()
+    #     # NLLLoss = nn.NLLLoss()
+    #     # loss = NLLLoss(dis_mat, label)
+    #     loss_ce = CEloss(dis_mat, label)
+    #     # print(loss)
+    #     # print(loss_ce)
+    #     # print(loss)
 
-        return loss_ce, acc
+    #     return loss_ce, acc
 
-    def loss_MLP(self, feature, labels, MLP_):
-        # print(feature.shape)
-        B, T, n_dim, n_channel = feature.shape
-        feature = feature.permute(0, 2, 3, 1)
-        feature = feature.reshape(B, n_dim*n_channel, T)
-        # LDS Smooth
-        save_img(feature[4], 'feature_before_lds.png')
-        feature = feature.permute(0, 2, 1)
-        feature = LDS_new(feature)
-        feature = feature.permute(0, 2, 1)
-        save_img(feature[4], 'feature_after_lds.png')
-        # Ave Pooling
-        feature = F.avg_pool1d(feature, kernel_size=T // 5)
-        feature = F.avg_pool1d(feature, kernel_size=feature.shape[-1])
-        # print(feature.shape)
-        feature = feature.reshape(B, -1)
-        save_img(feature, 'feature_lds.png')
-        # feature = feature.detach()
-        logits = MLP_(feature)
-        CEloss = torch.nn.CrossEntropyLoss()
-        loss = CEloss(logits, labels)
-        save_img(logits, 'MLP_logits.png')
-        acc = self.top1_accuracy(logits, labels)
-        return loss, acc
+    # def loss_MLP(self, feature, labels, MLP_):
+    #     # print(feature.shape)
+    #     B, T, n_dim, n_channel = feature.shape
+    #     feature = feature.permute(0, 2, 3, 1)
+    #     feature = feature.reshape(B, n_dim*n_channel, T)
+    #     # LDS Smooth
+    #     save_img(feature[4], 'feature_before_lds.png')
+    #     feature = feature.permute(0, 2, 1)
+    #     feature = LDS_new(feature)
+    #     feature = feature.permute(0, 2, 1)
+    #     save_img(feature[4], 'feature_after_lds.png')
+    #     # Ave Pooling
+    #     feature = F.avg_pool1d(feature, kernel_size=T // 5)
+    #     feature = F.avg_pool1d(feature, kernel_size=feature.shape[-1])
+    #     # print(feature.shape)
+    #     feature = feature.reshape(B, -1)
+    #     save_img(feature, 'feature_lds.png')
+    #     # feature = feature.detach()
+    #     logits = MLP_(feature)
+    #     CEloss = torch.nn.CrossEntropyLoss()
+    #     loss = CEloss(logits, labels)
+    #     save_img(logits, 'MLP_logits.png')
+    #     acc = self.top1_accuracy(logits, labels)
+    #     return loss, acc
     
     def extract_leading_eig_vector(self, data_dim, data, device='gpu'):
         geom_backend = torch if device == 'gpu' else np
@@ -782,7 +788,7 @@ class MultiModel_PL(pl.LightningModule):
             if dataset == '2':
                 x = self.c_mlp_2(x)
             if dataset == '3':
-                x = self.c_mlp_1(x)
+                x = self.c_mlp_0(x)
             if self.saveFea:
                 self.channelwiseEncoder.saveFea = True
             fea = self.channelwiseEncoder(x)
@@ -933,7 +939,7 @@ class MultiModel_PL(pl.LightningModule):
                     self.cov_0_mean += cen_0 / self.cfg.train.n_pairs
                     self.cov_1_mean += cen_1 / self.cfg.train.n_pairs
                     self.cov_2_mean += cen_2 / self.cfg.train.n_pairs
-                save_batch_images(torch.concat([self.cov_0_mean, self.cov_1_mean, self.cov_2_mean]).unsqueeze(0), 'cov_cen')
+                # save_batch_images(torch.concat([self.cov_0_mean, self.cov_1_mean, self.cov_2_mean]).unsqueeze(0), 'cov_cen')
                 loss_align = loss_align + cen_loss
                 # loss_align = loss_align + self.CDA_loss(cov_1.detach(), cov_3)
                 # loss_align = loss_align + self.CDA_loss(cov_2.detach(), cov_3)
