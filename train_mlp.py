@@ -13,6 +13,8 @@ from torch.utils.data import DataLoader
 import torch
 import logging
 from utils_new import save_batch_images, save_img
+os.environ["TMPDIR"] = "/mnt/dataset0/temp"
+
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +34,7 @@ def train_mlp(cfg: DictConfig) -> None:
     best_val_acc_list = []
     
     for fold in range(0,n_folds):
+        fold_acc_max = 0
         cp_dir = os.path.join(cfg.log.cp_dir, cfg.data_val.dataset_name, f'r{cfg.log.run}')
         os.makedirs(cp_dir, exist_ok=True)
         wandb_logger = WandbLogger(name=cfg.log.exp_name+'mlp'+'v'+str(cfg.train.valid_method)
@@ -40,7 +43,9 @@ def train_mlp(cfg: DictConfig) -> None:
         cp_monitor = None if n_folds == 1 else "mlp/val/acc"
         es_monitor = "mlp/train/acc" if n_folds == 1 else "mlp/val/acc"
         checkpoint_callback = ModelCheckpoint(monitor=cp_monitor, verbose=True, mode="max", 
-                                              dirpath=cp_dir, filename=f'mlp_f{fold}_wd={cfg.mlp.wd}_'+'{epoch}')
+                                              dirpath=cp_dir, filename=f'mlp_f{fold}_wd={cfg.mlp.wd}_'+'{epoch}',
+                                              save_top_k=0,
+                                              )
         earlyStopping_callback = EarlyStopping(monitor=es_monitor, mode="max", patience=cfg.mlp.patience)
         log.info(f"fold:{fold}")
         if n_folds == 1:
@@ -89,7 +94,7 @@ def train_mlp(cfg: DictConfig) -> None:
                              accelerator='gpu', devices=cfg.mlp.gpus, limit_val_batches=limit_val_batches)
         trainer.fit(predictor, trainLoader, valLoader)
         if cfg.train.valid_method != 1:
-            best_val_acc_list.append(checkpoint_callback.best_model_score.item())
+            best_val_acc_list.append(trainer.callback_metrics['mlp/val/acc'].detach().cpu().numpy())
         wandb.finish()
         
         if cfg.train.iftest :

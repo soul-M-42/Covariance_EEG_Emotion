@@ -41,7 +41,7 @@ align:
 
 log:
   is_logger: True
-  logpath: 'log_trinity'
+  logpath: 'log_qua'
   # logpath: 'log'
   # logpath: 'log'
   run: 4
@@ -55,7 +55,7 @@ log:
 
 train:
   n_fold: 1
-  n_pairs: 1024
+  n_pairs: 16
   gpus: [0]
   iftest: False
   valid_method: 4
@@ -70,10 +70,10 @@ train:
   restart_times: ${train.max_epochs}  # scheduler
   val_sub_p: 0.8
   grad_accumulation: 1
-  num_workers: 64
+  num_workers: 127
 
 finetune:
-  n_pairs: 1024
+  n_pairs: 64
   gpus: [0]
   iftest: False
   valid_method: 4
@@ -87,8 +87,8 @@ finetune:
   restart_times: ${train.max_epochs}  # scheduler
   val_sub_p: 0.8
   grad_accumulation: 1
-  num_workers: 64
-  align: False
+  num_workers: 127
+  align: True
 
 
 
@@ -104,6 +104,7 @@ mlp:
   gpus: ${train.gpus}
   num_workers: ${train.num_workers}
   batch_size: 512
+  save_mlp: False
 
 ext_fea:
   finetune: False
@@ -111,7 +112,7 @@ ext_fea:
   batch_size: 256
   mode: 'me'
   rn_decay: 0.990
-  use_pretrain: False
+  use_pretrain: True
 
 
 hydra:
