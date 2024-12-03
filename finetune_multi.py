@@ -1,8 +1,8 @@
 import hydra
 from omegaconf import DictConfig
 import os
-os.environ["CUDA_VISIBLE_DEVICES"]="4,5"
-os.environ["WORLD_SIZE"]="2"
+os.environ["CUDA_VISIBLE_DEVICES"]="4"
+os.environ["WORLD_SIZE"]="1"
 import torch
 from model import ExtractorModel
 import numpy as np

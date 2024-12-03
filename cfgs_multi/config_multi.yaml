@@ -19,9 +19,9 @@ seed: 7
 
 channel_encoder:
   model: 'replace'
-  patch_size: 32
-  hidden_dim: 128
-  out_dim: 4
+  patch_size: 16
+  hidden_dim: 64
+  out_dim: 16
   depth: 1
   patch_stride: 4
   drop_path: 0.1
@@ -35,7 +35,7 @@ align:
   n_channel_uni: 60
   to_riem: True
   proto_loss: False
-  align_loss: True
+  align_loss: False
   clisa_loss: True
   MLP_loss: False
 
@@ -45,7 +45,7 @@ log:
   # logpath: 'log'
   # logpath: 'log'
   run: 4
-  proj_name: SEEDV_cov
+  proj_name: SEEDV_bsl
   # CDA for Cross Dataset Align
 
   exp_name: ${log.proj_name}
@@ -73,7 +73,7 @@ train:
   num_workers: 127
 
 finetune:
-  n_pairs: 64
+  n_pairs: 1024
   gpus: [0]
   iftest: False
   valid_method: 4
@@ -88,7 +88,7 @@ finetune:
   val_sub_p: 0.8
   grad_accumulation: 1
   num_workers: 127
-  align: True
+  align: False
 
 
 

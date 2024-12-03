@@ -223,11 +223,12 @@ class Replace_Encoder(nn.Module):
         self.stratified = stratified
 
 class MLLA_encoder(nn.Module):
-    def __init__(self):
+    def __init__(self, in_dim=16, hid_dim=64, out_dim=16):
         super().__init__()
         self.encoder = MLLA_BasicLayer(
-                                    in_dim=16, hidden_dim=64, out_dim=16,
+                                    in_dim=in_dim, hidden_dim=hid_dim, out_dim=out_dim,
                                     depth=1, num_heads=2)
+        self.in_dim = in_dim
     
     def forward(self, input):
         # input.shape should be [B, dim, n_channel, T]
@@ -236,7 +237,7 @@ class MLLA_encoder(nn.Module):
         x = x.permute(0, 2, 1, 3)  # Shape: [Batch, n_channels, D1, T]
         x = x.reshape(B * n_channels, D1, T)  # Shape: [Batch * n_channels, D1, T]
         x = x.permute(0, 2, 1)  # Shape: [Batch * n_channels, T, D1]
-        x = to_patch(x, patch_size=16, stride=2)  # Shape: [Batch * n_channels, N, D1]
+        x = to_patch(x, patch_size=self.in_dim, stride=2)  # Shape: [Batch * n_channels, N, D1]
         x = self.encoder(x)  # Shape: [Batch * n_channels, N, out_dim]
         x = x.view(B, n_channels, x.shape[1], x.shape[2])  # Shape: [Batch, n_channels, N, out_dim]
         return x

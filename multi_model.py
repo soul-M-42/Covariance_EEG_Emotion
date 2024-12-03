@@ -431,7 +431,9 @@ class MultiModel_PL(pl.LightningModule):
             # self.proj = Clisa_Proj(n_dim_in=cfg.align.n_channel_uni * cfg.channel_encoder.out_dim)
         
         if self.cfg.channel_encoder.model == 'replace':
-            self.mlla = MLLA_encoder()
+            self.mlla = MLLA_encoder(in_dim=cfg.channel_encoder.patch_size,
+                                    hid_dim=cfg.channel_encoder.hidden_dim,
+                                    out_dim=cfg.channel_encoder.out_dim,)
             self.channelwiseEncoder = Replace_Encoder(n_timeFilters=16,
                                                     timeFilterLen=30,
                                                     n_msFilters=4,
@@ -474,28 +476,37 @@ class MultiModel_PL(pl.LightningModule):
         self.criterion = SimCLRLoss(cfg.train.loss_temp)
         self.saveFea = False
         self.cov_feature_dim = cfg.align.n_channel_uni * cfg.channel_encoder.n_filter
-        self.cov_0_mean = nn.Parameter(torch.zeros([self.cov_feature_dim, self.cov_feature_dim]), requires_grad=False)
-        self.cov_1_mean = nn.Parameter(torch.zeros([self.cov_feature_dim, self.cov_feature_dim]), requires_grad=False)
-        self.cov_2_mean = nn.Parameter(torch.zeros([self.cov_feature_dim, self.cov_feature_dim]), requires_grad=False)
+        # self.cov_0_mean = nn.Parameter(torch.zeros([self.cov_feature_dim, self.cov_feature_dim]), requires_grad=False)
+        # self.cov_1_mean = nn.Parameter(torch.zeros([self.cov_feature_dim, self.cov_feature_dim]), requires_grad=False)
+        # self.cov_2_mean = nn.Parameter(torch.zeros([self.cov_feature_dim, self.cov_feature_dim]), requires_grad=False)
         self.phase = 'train'
 
     def cov_mat(self, data):
-        # data = (B, dim, C, T)
-        [B, dim, C, T] = data.shape
-        n_sample = dim * C
+        # 计算每个dim维度下的通道间协方差矩阵，使用批量矩阵乘法。
+        # 参数：
+        #     data (Tensor): 输入数据，形状为 [B, dim, C, T]。
+        # 返回：
+        #     cov_matrix (Tensor): 每个dim的协方差矩阵，形状为 [B, dim, C, C]。
+        B, dim, C, T = data.shape
         
-        data = data.reshape(B, n_sample, T)
-        data = data + torch.randn_like(data) * 0.001
-        data = data - torch.mean(data, dim=2, keepdim=True)
-        data = data / torch.sqrt(torch.var(data, dim=2, keepdim=True) + 1e-14)
-
-
-        # 计算协方差矩阵
-        # 这里使用 batch matrix multiplication (bmm) 来避免显式循环
-        cov_matrices = torch.bmm(data, data.transpose(1, 2)) / (T - 1)  # 形状: (B, C, C)
+        # 计算均值，形状为 [B, dim, C, 1]
+        mean_data = data.mean(dim=-1, keepdim=True)  # 计算每个通道在T维度上的均值
+        data_centered = data - mean_data  # 去中心化，形状 [B, dim, C, T]
+        
+        # 转置数据，形状变为 [B, dim, T, C]
+        data_centered = data_centered.permute(0, 1, 3, 2)  # shape: [B, dim, T, C]
+        
+        # 将数据reshape成 [B * dim, C, T] 和 [B * dim, T, C]
+        data_centered = data_centered.reshape(B * dim, C, T)  # shape: [B * dim, C, T]
+        
+        # 使用批量矩阵乘法计算协方差矩阵，结果形状为 [B * dim, C, C]
+        cov_matrix = torch.bmm(data_centered, data_centered.permute(0, 2, 1)) / (T - 1)  # shape: [B * dim, C, C]
+        # save_batch_images(cov_matrix, 'cov_matrices')
+        
+        # 将协方差矩阵重新reshape为 [B, dim, C, C]
+        cov_matrix = cov_matrix.reshape(B, dim, C, C)  # shape: [B, dim, C, C]
         # save_batch_images(data[:,:200,:], 'cov_use_data')
-        # save_batch_images(cov_matrices, 'cov_matrices')
-        return cov_matrices
+        return cov_matrix
 
     def frechet_mean(self, cov_matrices, tol=1e-5, max_iter=100):
         # Ensure the input is a GPU tensor
@@ -506,7 +517,7 @@ class MultiModel_PL(pl.LightningModule):
             prev_centroid = centroid.clone()
             
             # Compute weights in a vectorized manner
-            distances = torch.linalg.norm(cov_matrices - centroid, dim=(1, 2), ord='fro')
+            distances = torch.linalg.norm(cov_matrices - centroid, dim=(1, 2), ord='fro') + 1e-8
             weights = 1.0 / distances
             weights /= torch.sum(weights)
             
@@ -526,32 +537,29 @@ class MultiModel_PL(pl.LightningModule):
 
     # CDA for Cross_dataset Alignment
     def CDA_loss(self, cov_0, cov_1, cov_2):
-        cov_dim = self.cfg.align.n_channel_uni * self.cfg.channel_encoder.out_dim
+        cov_0 = cov_0.reshape(2, -1, self.cfg.channel_encoder.out_dim, self.cfg.align.n_channel_uni, self.cfg.align.n_channel_uni)
+        cov_1 = cov_1.reshape(2, -1, self.cfg.channel_encoder.out_dim, self.cfg.align.n_channel_uni, self.cfg.align.n_channel_uni)
+        cov_2 = cov_2.reshape(2, -1, self.cfg.channel_encoder.out_dim, self.cfg.align.n_channel_uni, self.cfg.align.n_channel_uni)
+        # print(cov_0.shape, cov_1.shape, cov_2.shape)
+        # cen_0 = torch.zeros(self.cfg.channel_encoder.out_dim, self.cfg.align.n_channel_uni, self.cfg.align.n_channel_uni)
+        # cen_1 = torch.zeros(self.cfg.channel_encoder.out_dim, self.cfg.align.n_channel_uni, self.cfg.align.n_channel_uni)
+        # cen_2 = torch.zeros(self.cfg.channel_encoder.out_dim, self.cfg.align.n_channel_uni, self.cfg.align.n_channel_uni)
         dis = 0
-        cov_0_ = cov_0.reshape(2, -1, self.cov_feature_dim, self.cov_feature_dim)
-        cov_1_ = cov_1.reshape(2, -1, self.cov_feature_dim, self.cov_feature_dim)
-        cov_2_ = cov_2.reshape(2, -1, self.cov_feature_dim, self.cov_feature_dim)
-        ind_cen = []
-        ind_cen.append(self.get_ind_cen(cov_0_[0]))
-        ind_cen.append(self.get_ind_cen(cov_0_[1]))
-        ind_cen.append(self.get_ind_cen(cov_1_[0]))
-        ind_cen.append(self.get_ind_cen(cov_1_[1]))
-        ind_cen.append(self.get_ind_cen(cov_2_[0]))
-        ind_cen.append(self.get_ind_cen(cov_2_[1]))
-        
-        # save_batch_images(cov_0_[0], 'cov_0_')
-        # save_batch_images(torch.stack(ind_cen), 'ind_cens')
-        for i in range(len(ind_cen)):
-            for j in range(i+1, len(ind_cen)):
-                cen_i = ind_cen[i]
-                cen_j = ind_cen[j]
-                dis = dis + self.frobenius_distance(cen_i, cen_j)
+        for dim in range(self.cfg.channel_encoder.out_dim):
+            ind_cen = []
+            ind_cen.append(self.get_ind_cen(cov_0[0][:, dim]))
+            ind_cen.append(self.get_ind_cen(cov_0[1][:, dim]))
+            ind_cen.append(self.get_ind_cen(cov_1[0][:, dim]))
+            ind_cen.append(self.get_ind_cen(cov_1[1][:, dim]))
+            ind_cen.append(self.get_ind_cen(cov_2[0][:, dim]))
+            ind_cen.append(self.get_ind_cen(cov_2[1][:, dim]))
+            for i in range(len(ind_cen)):
+                for j in range(i+1, len(ind_cen)):
+                    dis = dis + self.frobenius_distance(ind_cen[i], ind_cen[j])
+        # save_batch_images(cen_0, 'cen_0_sample')
         loss = torch.log(dis + 1.0)
-        cen_0 = self.get_ind_cen(torch.stack([ind_cen[0], ind_cen[1]]))
-        cen_1 = self.get_ind_cen(torch.stack([ind_cen[2], ind_cen[3]]))
-        cen_2 = self.get_ind_cen(torch.stack([ind_cen[4], ind_cen[5]]))
         # save_img(torch.concat([cen_0, cen_1, cen_2]), 'cov_cen.png')
-        return loss, cen_0, cen_1, cen_2
+        return loss, None, None, None
 
     def frobenius_distance(self, matrix_a, matrix_b):
         return torch.linalg.norm(matrix_a-matrix_b, 'fro')
@@ -935,28 +943,31 @@ class MultiModel_PL(pl.LightningModule):
 
             
             # 4. cov Riemanian align loss
+            loss_align = 0
+            cov_0 = self.cov_mat(fea_0) # [B_0, dim, C, C]
+            cov_1 = self.cov_mat(fea_1)
+            cov_2 = self.cov_mat(fea_2)
+            # cov_3 = self.cov_mat(fea_3)
             if self.cfg.align.align_loss:
-                loss_align = 0
-                cov_0 = self.cov_mat(fea_0)
-                cov_1 = self.cov_mat(fea_1)
-                cov_2 = self.cov_mat(fea_2)
-                # cov_3 = self.cov_mat(fea_3)
                 cen_loss, cen_0, cen_1, cen_2 = self.CDA_loss(cov_0, cov_1, cov_2)
-                with torch.no_grad():
-                    self.cov_0_mean += cen_0 / self.cfg.train.n_pairs
-                    self.cov_1_mean += cen_1 / self.cfg.train.n_pairs
-                    self.cov_2_mean += cen_2 / self.cfg.train.n_pairs
-                # save_batch_images(torch.concat([self.cov_0_mean, self.cov_1_mean, self.cov_2_mean]).unsqueeze(0), 'cov_mean')
-                # save_batch_images(torch.concat([cen_0, cen_1, cen_2]).unsqueeze(0), 'cov_cen')
-                loss_align = loss_align + cen_loss
-                # loss_align = loss_align + self.CDA_loss(cov_1.detach(), cov_3)
-                # loss_align = loss_align + self.CDA_loss(cov_2.detach(), cov_3)
-                # print(f'loss_align={loss_align}')
-                self.log_dict({
-                    'loss_align/val': loss_align,    
-                    },
-                    logger=self.is_logger,
-                    on_step=False, on_epoch=True, prog_bar=True)
+            else:
+                cen_loss, cen_0, cen_1, cen_2 = self.CDA_loss(cov_0.detach(), cov_1.detach(), cov_2.detach())
+            # with torch.no_grad():
+            #     self.cov_0_mean += cen_0 / self.cfg.train.n_pairs
+            #     self.cov_1_mean += cen_1 / self.cfg.train.n_pairs
+            #     self.cov_2_mean += cen_2 / self.cfg.train.n_pairs
+            # save_batch_images(torch.concat([self.cov_0_mean, self.cov_1_mean, self.cov_2_mean]).unsqueeze(0), 'cov_mean')
+            # save_batch_images(torch.concat([cen_0, cen_1, cen_2]).unsqueeze(0), 'cov_cen')
+            loss_align = loss_align + cen_loss
+            # loss_align = loss_align + self.CDA_loss(cov_1.detach(), cov_3)
+            # loss_align = loss_align + self.CDA_loss(cov_2.detach(), cov_3)
+            # print(f'loss_align={loss_align}')
+            self.log_dict({
+                'loss_align/train': loss_align,    
+                },
+                logger=self.is_logger,
+                on_step=False, on_epoch=True, prog_bar=True)
+            if self.cfg.align.align_loss:
                 loss = loss + loss_align
                 
             self.log_dict({
@@ -966,7 +977,7 @@ class MultiModel_PL(pl.LightningModule):
                     on_step=False, on_epoch=True, prog_bar=True)
         
         elif self.phase == 'finetune':
-            save_batch_images(torch.concat([self.cov_0_mean, self.cov_1_mean, self.cov_2_mean]).unsqueeze(0), 'cov_cen')
+            # save_batch_images(torch.concat([self.cov_0_mean, self.cov_1_mean, self.cov_2_mean]).unsqueeze(0), 'cov_cen')
             loss_align = 0
             [x_3], [y_3] = batch
             x_3 = x_3[0]
@@ -977,13 +988,13 @@ class MultiModel_PL(pl.LightningModule):
             if(self.cfg.finetune.align):
                 cov_3 = self.cov_mat(fea_3)
                 cen_3 = self.get_ind_cen(cov_3)
-                save_batch_images(cov_3, 'cov_3')
+                # save_batch_images(cov_3, 'cov_3')
                 dis = 0
                 dis = dis + self.frobenius_distance(cen_3, self.cov_0_mean)
                 dis = dis + self.frobenius_distance(cen_3, self.cov_1_mean)
                 dis = dis + self.frobenius_distance(cen_3, self.cov_2_mean)
                 loss_align = dis
-                # loss_align = torch.log(dis + 1.0)
+                loss_align = torch.log(dis + 1.0)
                 loss = loss +loss_align
             self.log_dict({
                     'loss_align/train': loss_align, 
@@ -1118,20 +1129,31 @@ class MultiModel_PL(pl.LightningModule):
                     on_step=False, on_epoch=True, prog_bar=True)
             
             # 4. cov Riemanian align loss
+            loss_align = 0
+            cov_0 = self.cov_mat(fea_0)
+            cov_1 = self.cov_mat(fea_1)
+            cov_2 = self.cov_mat(fea_2)
+            # cov_3 = self.cov_mat(fea_3)
             if self.cfg.align.align_loss:
-                loss_align = 0
-                cov_1 = self.cov_mat(fea_1)
-                cov_2 = self.cov_mat(fea_2)
-                # cov_3 = self.cov_mat(fea_3)
-                loss_align = loss_align + self.CDA_loss(cov_1, cov_2)
-                # loss_align = loss_align + self.CDA_loss(cov_1.detach(), cov_3)
-                # loss_align = loss_align + self.CDA_loss(cov_2.detach(), cov_3)
-                # print(f'loss_align={loss_align}')
-                self.log_dict({
-                    'loss_align/val': loss_align,    
-                    },
-                    logger=self.is_logger,
-                    on_step=False, on_epoch=True, prog_bar=True)
+                cen_loss, cen_0, cen_1, cen_2 = self.CDA_loss(cov_0, cov_1, cov_2)
+            else:
+                cen_loss, cen_0, cen_1, cen_2 = self.CDA_loss(cov_0.detach(), cov_1.detach(), cov_2.detach())
+            # with torch.no_grad():
+            #     self.cov_0_mean += cen_0 / self.cfg.train.n_pairs
+            #     self.cov_1_mean += cen_1 / self.cfg.train.n_pairs
+            #     self.cov_2_mean += cen_2 / self.cfg.train.n_pairs
+            # save_batch_images(torch.concat([self.cov_0_mean, self.cov_1_mean, self.cov_2_mean]).unsqueeze (0), 'cov_mean')
+            # save_batch_images(torch.concat([cen_0, cen_1, cen_2]).unsqueeze(0), 'cov_cen')
+            loss_align = loss_align + cen_loss
+            # loss_align = loss_align + self.CDA_loss(cov_1.detach(), cov_3)
+            # loss_align = loss_align + self.CDA_loss(cov_2.detach(), cov_3)
+            # print(f'loss_align={loss_align}')
+            self.log_dict({
+                'loss_align/val': loss_align,    
+                },
+                logger=self.is_logger,
+                on_step=False, on_epoch=True, prog_bar=True)
+            if self.cfg.align.align_loss:
                 loss = loss + loss_align
 
             # Check grad 
@@ -1164,7 +1186,7 @@ class MultiModel_PL(pl.LightningModule):
                 dis = dis + self.frobenius_distance(cen_3, self.cov_1_mean)
                 dis = dis + self.frobenius_distance(cen_3, self.cov_2_mean)
                 loss_align = dis
-                # loss_align = torch.log(dis + 1.0)
+                loss_align = torch.log(dis + 1.0)
                 loss = loss +loss_align
             self.log_dict({
                     'loss_align/val': loss_align, 

@@ -27,9 +27,9 @@ class CovResetCallback(Callback):
 
         # epoch_mean = torch.stack(pl_module.training_step_outputs).mean()
         # pl_module.log("training_epoch_mean", epoch_mean)
-        pl_module.cov_0_mean.data.zero_()
-        pl_module.cov_1_mean.data.zero_()
-        pl_module.cov_2_mean.data.zero_()
+        # pl_module.cov_0_mean.data.zero_()
+        # pl_module.cov_1_mean.data.zero_()
+        # pl_module.cov_2_mean.data.zero_()
         print('cov reset!')
         # # free up the memory
         # pl_module.training_step_outputs.clear()
