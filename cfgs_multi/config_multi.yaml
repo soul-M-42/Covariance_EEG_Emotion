@@ -55,7 +55,7 @@ log:
 
 train:
   n_fold: 1
-  n_pairs: 16
+  n_pairs: 1024
   gpus: [0]
   iftest: False
   valid_method: 4
