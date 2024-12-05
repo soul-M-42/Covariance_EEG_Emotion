@@ -88,7 +88,7 @@ def run_pipeline(cfg: DictConfig):
         log.info(f'Model size: {total_size} bytes ({total_size / (1024 ** 2):.2f} MB)')
         cp_monitor = None if n_folds == 1 else "loss_total/val"
         es_monitor = "loss_total/train" if n_folds == 1 else "loss_total/val"
-        cp_dir = os.path.join(cfg.log.cp_dir, cfg.log.proj_name)
+        cp_dir = os.path.join(cfg.log.logpath, cfg.log.proj_name)
         checkpoint_callback = ModelCheckpoint(monitor=cp_monitor, mode="min", verbose=True, dirpath=cp_dir, 
                                             filename=f'f{fold}_tuned')
         earlyStopping_callback = EarlyStopping(monitor=es_monitor, mode="min", patience=cfg.finetune.patience)

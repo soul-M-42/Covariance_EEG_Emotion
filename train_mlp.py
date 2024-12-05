@@ -1,8 +1,10 @@
 import hydra
+import os
+os.environ["CUDA_VISIBLE_DEVICES"]="4"
+os.environ["WORLD_SIZE"]="1"
 from omegaconf import DictConfig
 from model.models import simpleNN3
 import numpy as np
-import os
 from data.dataset import PDataset
 from model.pl_models import MLPModel
 import pytorch_lightning as pl
@@ -13,7 +15,6 @@ from torch.utils.data import DataLoader
 import torch
 import logging
 from utils_new import save_batch_images, save_img
-os.environ["TMPDIR"] = "/mnt/dataset0/temp"
 
 
 log = logging.getLogger(__name__)

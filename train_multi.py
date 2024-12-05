@@ -119,7 +119,7 @@ def run_pipeline(cfg: DictConfig):
         limit_val_batches = 0.0 if n_folds == 1 else 1.0
         trainer = pl.Trainer(
             logger=logger,
-            callbacks=[checkpoint_callback, earlyStopping_callback, CovResetCallback(n_channel_uni = cfg.align.n_channel_uni)],
+            callbacks=[checkpoint_callback, earlyStopping_callback, CovResetCallback(n_channel_uni = cfg.channel_encoder.n_channel_uni)],
             max_epochs=cfg.train.max_epochs, min_epochs=cfg.train.min_epochs, 
             accelerator='gpu', devices=cfg.train.gpus, limit_val_batches=limit_val_batches,
             accumulate_grad_batches=cfg.train.grad_accumulation

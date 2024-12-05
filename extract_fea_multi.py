@@ -28,6 +28,8 @@ def ext_fea(cfg: DictConfig) -> None:
     data2, onesub_label2, n_samples2_onesub, n_samples2_sessions = load_finetune_EEG_data(load_dir, cfg.data_val)
     print('data loaded')
     print(f'data ori shape:{data2.shape}')
+    print(f'n_samples2_onesub shape:{n_samples2_onesub.shape}')
+    print(f'n_samples2_sessions shape:{n_samples2_sessions.shape}')
     #data2 shape (n_subs,session*vid*n_samples, n_chans, n_pionts)
     data2 = data2.reshape(cfg.data_val.n_subs, -1, data2.shape[-2], data2.shape[-1])
     save_dir = os.path.join(cfg.data_val.data_dir,'ext_fea')
@@ -88,10 +90,10 @@ def ext_fea(cfg: DictConfig) -> None:
             log.info('load model:'+checkpoint)
 
             # save dataset-wise cov_feature
-            cov_1_mean, cov_2_mean = Extractor.cov_1_mean, Extractor.cov_2_mean
-            save_batch_images(torch.stack([cov_1_mean, cov_2_mean]), 'cov_mean_extractor')
+            # cov_1_mean, cov_2_mean = Extractor.cov_1_mean, Extractor.cov_2_mean
+            # save_batch_images(torch.stack([cov_1_mean, cov_2_mean]), 'cov_mean_extractor')
             save_path = os.path.join(save_dir,cfg.log.exp_name+f'_f{fold}_cov_'+cfg.ext_fea.mode+'.npy')
-            np.save(save_path, torch.stack([cov_1_mean, cov_2_mean]).cpu())
+            # np.save(save_path, torch.stack([cov_1_mean, cov_2_mean]).cpu())
             log.info('save covarience:'+save_path)
 
             trainer = pl.Trainer(accelerator='gpu', devices=cfg.train.gpus)

@@ -423,12 +423,12 @@ class MultiModel_PL(pl.LightningModule):
                 filterLen=cfg.channel_encoder.filterLen,
                 n_heads=cfg.channel_encoder.n_heads)
             # self.channelwiseEncoder = channelwiseEncoder(n_filter=cfg.channel_encoder.out_dim, standard_channels=cfg.data_1.channels)
-            self.alignmentModule_1 = Channel_Alignment(cfg.data_1.n_channs, cfg.align.n_channel_uni)
-            self.alignmentModule_2 = Channel_Alignment(cfg.data_2.n_channs, cfg.align.n_channel_uni)
-            self.alignmentModule_3 = Channel_Alignment(cfg.data_val.n_channs, cfg.align.n_channel_uni)
-            self.sFilter = sFilter(dim_in=cfg.channel_encoder.out_dim, n_channs=cfg.align.n_channel_uni, sFilter_timeLen=3, multiFact=1)
-            self.proj = Clisa_Proj(n_dim_in=cfg.channel_encoder.out_dim * cfg.align.n_channel_uni)
-            # self.proj = Clisa_Proj(n_dim_in=cfg.align.n_channel_uni * cfg.channel_encoder.out_dim)
+            self.alignmentModule_1 = Channel_Alignment(cfg.data_1.n_channs, cfg.channel_encoder.n_channel_uni)
+            self.alignmentModule_2 = Channel_Alignment(cfg.data_2.n_channs, cfg.channel_encoder.n_channel_uni)
+            self.alignmentModule_3 = Channel_Alignment(cfg.data_val.n_channs, cfg.channel_encoder.n_channel_uni)
+            self.sFilter = sFilter(dim_in=cfg.channel_encoder.out_dim, n_channs=cfg.channel_encoder.n_channel_uni, sFilter_timeLen=3, multiFact=1)
+            self.proj = Clisa_Proj(n_dim_in=cfg.channel_encoder.out_dim * cfg.channel_encoder.n_channel_uni)
+            # self.proj = Clisa_Proj(n_dim_in=cfg.channel_encoder.n_channel_uni * cfg.channel_encoder.out_dim)
         
         if self.cfg.channel_encoder.model == 'replace':
             self.mlla = MLLA_encoder(in_dim=cfg.channel_encoder.patch_size,
@@ -438,7 +438,7 @@ class MultiModel_PL(pl.LightningModule):
                                                     timeFilterLen=30,
                                                     n_msFilters=4,
                                                     msFilter_timeLen=3,
-                                                    n_channs=cfg.align.n_channel_uni,
+                                                    n_channs=cfg.channel_encoder.n_channel_uni,
                                                     dilation_array=[1,3,6,12],
                                                     seg_att=15,
                                                     avgPoolLen=15,
@@ -451,21 +451,20 @@ class MultiModel_PL(pl.LightningModule):
                                                     has_att=True,
                                                     global_att=False)
             self.proj = Clisa_Proj(n_dim_in=256)
-            self.c_mlp_0 = Channel_mlp(cfg.data_0.n_channs, cfg.align.n_channel_uni)
-            self.c_mlp_1 = Channel_mlp(cfg.data_1.n_channs, cfg.align.n_channel_uni)
-            self.c_mlp_2 = Channel_mlp(cfg.data_2.n_channs, cfg.align.n_channel_uni)
-            self.c_mlp_3 = Channel_mlp(cfg.data_val.n_channs, cfg.align.n_channel_uni)
-        # self.decoder = ConvOut(in_shape=cfg.align.n_channel_uni)
+            self.c_mlp_0 = Channel_mlp(cfg.data_0.n_channs, cfg.channel_encoder.n_channel_uni)
+            self.c_mlp_1 = Channel_mlp(cfg.data_1.n_channs, cfg.channel_encoder.n_channel_uni)
+            self.c_mlp_2 = Channel_mlp(cfg.data_2.n_channs, cfg.channel_encoder.n_channel_uni)
+            self.c_mlp_3 = Channel_mlp(cfg.data_val.n_channs, cfg.channel_encoder.n_channel_uni)
+        # self.decoder = ConvOut(in_shape=cfg.channel_encoder.n_channel_uni)
         # self.decoder = ConvOut_Euclidean(out_channels=64)
         self.proto = None
-        # self.protos_1 = self.init_proto_rand(dim=cfg.align.n_channel_uni, n_class=cfg.data_1.n_class)
-        # self.protos_2 = self.init_proto_rand(dim=cfg.align.n_channel_uni, n_class=cfg.data_2.n_class)
+        # self.protos_1 = self.init_proto_rand(dim=cfg.channel_encoder.n_channel_uni, n_class=cfg.data_1.n_class)
+        # self.protos_2 = self.init_proto_rand(dim=cfg.channel_encoder.n_channel_uni, n_class=cfg.data_2.n_class)
         self.lr = cfg.train.lr
         self.wd = cfg.train.wd
         self.max_epochs = cfg.train.max_epochs
         self.restart_times = cfg.train.restart_times
         self.is_logger = cfg.log.is_logger
-        self.align_factor = cfg.align.factor
         # self.MLP_1 = MLP(input_dim=180, hidden_dim=64, out_dim=cfg.data_1.n_class)
         # self.MLP_2 = MLP(input_dim=180, hidden_dim=64, out_dim=cfg.data_2.n_class)
         # self.MLP_3 = MLP(input_dim=180, hidden_dim=64, out_dim=cfg.data_val.n_class)
@@ -475,7 +474,7 @@ class MultiModel_PL(pl.LightningModule):
         # self.train_set_2 = self.train_dataset.dataset_b
         self.criterion = SimCLRLoss(cfg.train.loss_temp)
         self.saveFea = False
-        self.cov_feature_dim = cfg.align.n_channel_uni * cfg.channel_encoder.n_filter
+        self.cov_feature_dim = cfg.channel_encoder.n_channel_uni * cfg.channel_encoder.n_filter
         # self.cov_0_mean = nn.Parameter(torch.zeros([self.cov_feature_dim, self.cov_feature_dim]), requires_grad=False)
         # self.cov_1_mean = nn.Parameter(torch.zeros([self.cov_feature_dim, self.cov_feature_dim]), requires_grad=False)
         # self.cov_2_mean = nn.Parameter(torch.zeros([self.cov_feature_dim, self.cov_feature_dim]), requires_grad=False)
@@ -492,6 +491,7 @@ class MultiModel_PL(pl.LightningModule):
         # 计算均值，形状为 [B, dim, C, 1]
         mean_data = data.mean(dim=-1, keepdim=True)  # 计算每个通道在T维度上的均值
         data_centered = data - mean_data  # 去中心化，形状 [B, dim, C, T]
+        # save_batch_images(data[0], 'cov_data')
         
         # 转置数据，形状变为 [B, dim, T, C]
         data_centered = data_centered.permute(0, 1, 3, 2)  # shape: [B, dim, T, C]
@@ -505,7 +505,8 @@ class MultiModel_PL(pl.LightningModule):
         
         # 将协方差矩阵重新reshape为 [B, dim, C, C]
         cov_matrix = cov_matrix.reshape(B, dim, C, C)  # shape: [B, dim, C, C]
-        # save_batch_images(data[:,:200,:], 'cov_use_data')
+        # for batch_id in range(B):
+        #     save_batch_images(cov_matrix[batch_id], f'cov_mat/batch_{batch_id}')
         return cov_matrix
 
     def frechet_mean(self, cov_matrices, tol=1e-5, max_iter=100):
@@ -537,13 +538,16 @@ class MultiModel_PL(pl.LightningModule):
 
     # CDA for Cross_dataset Alignment
     def CDA_loss(self, cov_0, cov_1, cov_2):
-        cov_0 = cov_0.reshape(2, -1, self.cfg.channel_encoder.out_dim, self.cfg.align.n_channel_uni, self.cfg.align.n_channel_uni)
-        cov_1 = cov_1.reshape(2, -1, self.cfg.channel_encoder.out_dim, self.cfg.align.n_channel_uni, self.cfg.align.n_channel_uni)
-        cov_2 = cov_2.reshape(2, -1, self.cfg.channel_encoder.out_dim, self.cfg.align.n_channel_uni, self.cfg.align.n_channel_uni)
+        cov_0 = cov_0.reshape(2, -1, self.cfg.channel_encoder.out_dim, self.cfg.channel_encoder.n_channel_uni, self.cfg.channel_encoder.n_channel_uni)
+        cov_1 = cov_1.reshape(2, -1, self.cfg.channel_encoder.out_dim, self.cfg.channel_encoder.n_channel_uni, self.cfg.channel_encoder.n_channel_uni)
+        cov_2 = cov_2.reshape(2, -1, self.cfg.channel_encoder.out_dim, self.cfg.channel_encoder.n_channel_uni, self.cfg.channel_encoder.n_channel_uni)
         # print(cov_0.shape, cov_1.shape, cov_2.shape)
-        # cen_0 = torch.zeros(self.cfg.channel_encoder.out_dim, self.cfg.align.n_channel_uni, self.cfg.align.n_channel_uni)
-        # cen_1 = torch.zeros(self.cfg.channel_encoder.out_dim, self.cfg.align.n_channel_uni, self.cfg.align.n_channel_uni)
-        # cen_2 = torch.zeros(self.cfg.channel_encoder.out_dim, self.cfg.align.n_channel_uni, self.cfg.align.n_channel_uni)
+        # cen_0 = torch.zeros(self.cfg.channel_encoder.out_dim, self.cfg.channel_encoder.n_channel_uni, self.cfg.channel_encoder.n_channel_uni)
+        # cen_1 = torch.zeros(self.cfg.channel_encoder.out_dim, self.cfg.channel_encoder.n_channel_uni, self.cfg.channel_encoder.n_channel_uni)
+        # cen_2 = torch.zeros(self.cfg.channel_encoder.out_dim, self.cfg.channel_encoder.n_channel_uni, self.cfg.channel_encoder.n_channel_uni)
+        # for dim in range(self.cfg.channel_encoder.out_dim):
+        #     save_batch_images(cov_0[0,:,dim], f'covmats/ind_0/{dim}')
+        #     save_batch_images(cov_1[0,:,dim], f'covmats/ind_1/{dim}')
         dis = 0
         for dim in range(self.cfg.channel_encoder.out_dim):
             ind_cen = []
@@ -787,7 +791,7 @@ class MultiModel_PL(pl.LightningModule):
         return matrix_data   
 
     def get_ind_cen(self, mat):
-        if not self.cfg.align.to_riem:
+        if not self.cfg.loss.to_riem:
             return torch.mean(mat, dim=0)
         mat = torch.squeeze(mat)
         mat = self.frechet_mean(mat)
@@ -803,7 +807,7 @@ class MultiModel_PL(pl.LightningModule):
             if dataset == '2':
                 x = self.c_mlp_2(x)
             if dataset == '3':
-                x = self.c_mlp_3(x)
+                x = self.c_mlp_0(x)
             if self.saveFea:
                 self.channelwiseEncoder.saveFea = True
             fea = self.channelwiseEncoder(x)
@@ -874,7 +878,7 @@ class MultiModel_PL(pl.LightningModule):
             # 1. proto_loss
             # if self.cfg.align.proto_loss:
             #     if self.proto is None:
-            #         self.proto = self.init_proto_rand(dim=self.cfg.align.n_channel_uni, n_class=9)
+            #         self.proto = self.init_proto_rand(dim=self.cfg.channel_encoder.n_channel_uni, n_class=9)
             #     cov_1 = self.cov_mat(fea_1)
             #     cov_2 = self.cov_mat(fea_2)
             #     for i in range(len(cov_1)):
@@ -897,7 +901,7 @@ class MultiModel_PL(pl.LightningModule):
             #     # print(f'loss_proto_1={loss_proto_1} loss_proto_2={loss_proto_2}\nacc_proto_1={acc_1} acc_proto_2={acc_2}')
 
             # 2. clisa_loss
-            if self.cfg.align.clisa_loss:
+            if self.cfg.loss.clisa_loss:
                 # loss_clisa_1 = self.loss_clisa(cov_1, y_1)
                 # loss_clisa_2 = self.loss_clisa(cov_2, y_2)
                 loss_clisa_0, acc1_0, acc5_0 = self.loss_clisa_fea(fea_clisa_0)
@@ -922,25 +926,27 @@ class MultiModel_PL(pl.LightningModule):
                         },
                         logger=self.is_logger,
                         on_step=False, on_epoch=True, prog_bar=True)
-                # print(f'loss_clisa_1={loss_clisa_1} loss_clisa_2={loss_clisa_2} ')
-            
-            # 3. emotion MLP classification
-            # if self.cfg.align.MLP_loss:
-            #     loss_MLP_1, acc_MLP_1 = self.loss_MLP(fea_1, y_1, self.MLP_1)
-            #     loss_MLP_2, acc_MLP_2 = self.loss_MLP(fea_2, y_2, self.MLP_2)
-            #     self.log_dict({
-            #         'loss_MLP_1/train': loss_MLP_1, 
-            #         'loss_MLP_2/train': loss_MLP_2, 
-            #         'loss_MLP_3/train': loss_MLP_3, 
-            #         'acc_MLP_1/train': acc_MLP_1, 
-            #         'acc_MLP_2/train': acc_MLP_2,  
-            #         'acc_MLP_3/train': acc_MLP_3,      
-            #         },
-            #         logger=self.is_logger,
-            #         on_step=False, on_epoch=True, prog_bar=True)
-            #     loss = loss + loss_MLP_1 + loss_MLP_2
-            #     loss = loss + loss_MLP_3
 
+            # add L1 loss to c_mlp output
+            L1_dim = 2
+            loss_L1 = 0
+            L1_weight = 1e-5
+            if self.cfg.loss.L1_loss:
+                loss_L1 += torch.sum(torch.abs(fea_0))
+                loss_L1 += torch.sum(torch.abs(fea_1))
+                loss_L1 += torch.sum(torch.abs(fea_2))
+            else:
+                loss_L1 += torch.sum(torch.abs(fea_0.detach()))
+                loss_L1 += torch.sum(torch.abs(fea_1.detach()))
+                loss_L1 += torch.sum(torch.abs(fea_2.detach()))
+            loss_L1 = L1_weight * loss_L1
+            if self.cfg.loss.L1_loss:
+                loss = loss + loss_L1
+            self.log_dict({
+                'loss_L1/train': loss_L1,    
+                },
+                logger=self.is_logger,
+                on_step=False, on_epoch=True, prog_bar=True)
             
             # 4. cov Riemanian align loss
             loss_align = 0
@@ -948,7 +954,7 @@ class MultiModel_PL(pl.LightningModule):
             cov_1 = self.cov_mat(fea_1)
             cov_2 = self.cov_mat(fea_2)
             # cov_3 = self.cov_mat(fea_3)
-            if self.cfg.align.align_loss:
+            if self.cfg.loss.align_loss:
                 cen_loss, cen_0, cen_1, cen_2 = self.CDA_loss(cov_0, cov_1, cov_2)
             else:
                 cen_loss, cen_0, cen_1, cen_2 = self.CDA_loss(cov_0.detach(), cov_1.detach(), cov_2.detach())
@@ -967,7 +973,7 @@ class MultiModel_PL(pl.LightningModule):
                 },
                 logger=self.is_logger,
                 on_step=False, on_epoch=True, prog_bar=True)
-            if self.cfg.align.align_loss:
+            if self.cfg.loss.align_loss:
                 loss = loss + loss_align
                 
             self.log_dict({
@@ -1055,7 +1061,7 @@ class MultiModel_PL(pl.LightningModule):
             # 1. proto_loss
             if self.cfg.align.proto_loss:
                 if self.proto is None:
-                    self.proto = self.init_proto_rand(dim=self.cfg.align.n_channel_uni, n_class=9)
+                    self.proto = self.init_proto_rand(dim=self.cfg.channel_encoder.n_channel_uni, n_class=9)
                 cov_1 = self.cov_mat(fea_1)
                 cov_2 = self.cov_mat(fea_2)
                 for i in range(len(cov_1)):
@@ -1078,7 +1084,7 @@ class MultiModel_PL(pl.LightningModule):
                 # print(f'loss_proto_1={loss_proto_1} loss_proto_2={loss_proto_2}\nacc_proto_1={acc_1} acc_proto_2={acc_2}')
 
             # 2. clisa_loss
-            if self.cfg.align.clisa_loss:
+            if self.cfg.loss.clisa_loss:
                 # loss_clisa_1 = self.loss_clisa(cov_1, y_1)
                 # loss_clisa_2 = self.loss_clisa(cov_2, y_2)
                 loss_clisa_0, acc1_0, acc5_0 = self.loss_clisa_fea(fea_clisa_0)
@@ -1134,7 +1140,7 @@ class MultiModel_PL(pl.LightningModule):
             cov_1 = self.cov_mat(fea_1)
             cov_2 = self.cov_mat(fea_2)
             # cov_3 = self.cov_mat(fea_3)
-            if self.cfg.align.align_loss:
+            if self.cfg.loss.align_loss:
                 cen_loss, cen_0, cen_1, cen_2 = self.CDA_loss(cov_0, cov_1, cov_2)
             else:
                 cen_loss, cen_0, cen_1, cen_2 = self.CDA_loss(cov_0.detach(), cov_1.detach(), cov_2.detach())
@@ -1153,7 +1159,7 @@ class MultiModel_PL(pl.LightningModule):
                 },
                 logger=self.is_logger,
                 on_step=False, on_epoch=True, prog_bar=True)
-            if self.cfg.align.align_loss:
+            if self.cfg.loss.align_loss:
                 loss = loss + loss_align
 
             # Check grad 

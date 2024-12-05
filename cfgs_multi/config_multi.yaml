@@ -28,15 +28,16 @@ channel_encoder:
   n_filter: 16
   filterLen: 10
   n_heads: 4
+  n_channel_uni: 60
 
-align:
+loss:
   device: gpu
   factor: 1.0
-  n_channel_uni: 60
   to_riem: True
   proto_loss: False
-  align_loss: False
+  align_loss: True
   clisa_loss: True
+  L1_loss: True
   MLP_loss: False
 
 log:
@@ -45,7 +46,7 @@ log:
   # logpath: 'log'
   # logpath: 'log'
   run: 4
-  proj_name: SEEDV_bsl
+  proj_name: SEEDV_cov_mask
   # CDA for Cross Dataset Align
 
   exp_name: ${log.proj_name}
