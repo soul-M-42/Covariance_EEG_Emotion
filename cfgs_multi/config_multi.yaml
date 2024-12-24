@@ -36,17 +36,18 @@ loss:
   to_riem: True
   proto_loss: False
   align_loss: True
+  align_f: 0
   clisa_loss: True
-  L1_loss: True
+  L1_loss: False
   MLP_loss: False
 
 log:
   is_logger: True
-  logpath: 'log_qua'
+  logpath: 'log_cov_factor_4_fold'
   # logpath: 'log'
   # logpath: 'log'
   run: 4
-  proj_name: SEEDV_cov_mask
+  proj_name: bsl
   # CDA for Cross Dataset Align
 
   exp_name: ${log.proj_name}
@@ -55,7 +56,7 @@ log:
   cp_dir: './cp'   
 
 train:
-  n_fold: 1
+  n_fold: 4
   n_pairs: 1024
   gpus: [0]
   iftest: False

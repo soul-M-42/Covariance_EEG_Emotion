@@ -434,7 +434,7 @@ class MultiModel_PL(pl.LightningModule):
             self.mlla = MLLA_encoder(in_dim=cfg.channel_encoder.patch_size,
                                     hid_dim=cfg.channel_encoder.hidden_dim,
                                     out_dim=cfg.channel_encoder.out_dim,)
-            self.channelwiseEncoder = Replace_Encoder(n_timeFilters=16,
+            self.channelwiseEncoder = Replace_Encoder(n_timeFilters=cfg.channel_encoder.out_dim,
                                                     timeFilterLen=30,
                                                     n_msFilters=4,
                                                     msFilter_timeLen=3,
@@ -505,6 +505,7 @@ class MultiModel_PL(pl.LightningModule):
         
         # 将协方差矩阵重新reshape为 [B, dim, C, C]
         cov_matrix = cov_matrix.reshape(B, dim, C, C)  # shape: [B, dim, C, C]
+        cov_matrix[:, :, range(C), range(C)] = 0
         # for batch_id in range(B):
         #     save_batch_images(cov_matrix[batch_id], f'cov_mat/batch_{batch_id}')
         return cov_matrix
@@ -561,7 +562,7 @@ class MultiModel_PL(pl.LightningModule):
                 for j in range(i+1, len(ind_cen)):
                     dis = dis + self.frobenius_distance(ind_cen[i], ind_cen[j])
         # save_batch_images(cen_0, 'cen_0_sample')
-        loss = torch.log(dis + 1.0)
+        loss = torch.log(dis + 1.0) * self.cfg.loss.align_f
         # save_img(torch.concat([cen_0, cen_1, cen_2]), 'cov_cen.png')
         return loss, None, None, None
 
@@ -1059,7 +1060,7 @@ class MultiModel_PL(pl.LightningModule):
             loss_2 = 0
 
             # 1. proto_loss
-            if self.cfg.align.proto_loss:
+            if self.cfg.loss.proto_loss:
                 if self.proto is None:
                     self.proto = self.init_proto_rand(dim=self.cfg.channel_encoder.n_channel_uni, n_class=9)
                 cov_1 = self.cov_mat(fea_1)
@@ -1112,7 +1113,7 @@ class MultiModel_PL(pl.LightningModule):
                 # print(f'loss_clisa_1={loss_clisa_1} loss_clisa_2={loss_clisa_2} ')
             
             # 3. emotion MLP classification
-            if self.cfg.align.MLP_loss:
+            if self.cfg.loss.MLP_loss:
                 loss_MLP_1, acc_MLP_1 = self.loss_MLP(fea_1, y_1, self.MLP_1)
                 loss_MLP_2, acc_MLP_2 = self.loss_MLP(fea_2, y_2, self.MLP_2)
                 self.log_dict({
