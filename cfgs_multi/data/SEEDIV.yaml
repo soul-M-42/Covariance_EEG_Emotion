@@ -1,9 +1,9 @@
 dataset_name: 'SEEDIV'
-data_dir: '/mnt/dataset0/qingzhu/AutoICA_Processed_EEG/SEED_IV/Processed_data_filter_0.50_47.00_AutoICA_Cus_Threshold'
+data_dir: '/mnt/dataset0/qingzhu/AutoICA_Processed_EEG/SEED-IV-new/Processed_MAT'
 fs: 125
-n_channs: 60
+n_channs: 62
 n_session: 3
-n_subs: 13
+n_subs: 15
 n_vids: 24
 n_class: 4
 

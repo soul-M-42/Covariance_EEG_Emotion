@@ -43,7 +43,7 @@ loss:
 
 log:
   is_logger: True
-  logpath: 'log_cov_factor_4_fold'
+  logpath: 'log_SEEDVII_test'
   # logpath: 'log'
   # logpath: 'log'
   run: 4

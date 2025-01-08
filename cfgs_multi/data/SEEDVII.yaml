@@ -1,0 +1,14 @@
+dataset_name: 'SEEDVII'
+data_dir: '/mnt/dataset0/qingzhu/AutoICA_Processed_EEG/SEED-VII/Processed_MAT'
+fs: 125
+n_channs: 62
+n_session: 4
+n_subs: 20
+n_vids: 20
+n_class: 7
+
+# changeable
+timeLen: 5
+timeStep: 2
+timeLen2: 1
+timeStep2: 1

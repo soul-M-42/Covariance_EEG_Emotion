@@ -1,0 +1,213 @@
+seed: 7
+channel_encoder:
+  model: replace
+  patch_size: 16
+  hidden_dim: 64
+  out_dim: 16
+  depth: 1
+  patch_stride: 4
+  drop_path: 0.1
+  n_filter: 16
+  filterLen: 10
+  n_heads: 4
+  n_channel_uni: 60
+loss:
+  device: gpu
+  factor: 1.0
+  to_riem: true
+  proto_loss: false
+  align_loss: true
+  align_f: 0
+  clisa_loss: true
+  L1_loss: false
+  MLP_loss: false
+log:
+  is_logger: true
+  logpath: log_SEEDVII_test
+  run: 4
+  proj_name: bsl
+  exp_name: ${log.proj_name}
+  cp_dir: ./cp
+train:
+  n_fold: 4
+  n_pairs: 1024
+  gpus:
+  - 0
+  iftest: false
+  valid_method: 4
+  reverse: true
+  lr: 0.0005
+  wd: 0.0001
+  loss_temp: 0.07
+  max_epochs: 20
+  min_epochs: 1
+  patience: 30
+  restart_times: ${train.max_epochs}
+  val_sub_p: 0.8
+  grad_accumulation: 1
+  num_workers: 127
+finetune:
+  n_pairs: 1024
+  gpus:
+  - 0
+  iftest: false
+  valid_method: 4
+  lr: 0.0005
+  wd: 0.01
+  loss_temp: 0.07
+  max_epochs: 20
+  min_epochs: 2
+  patience: 30
+  restart_times: ${train.max_epochs}
+  val_sub_p: 0.8
+  grad_accumulation: 1
+  num_workers: 127
+  align: false
+mlp:
+  hidden_dim: 128
+  out_dim: ${data_val.n_class}
+  lr: 0.0005
+  wd: 0.0022
+  max_epochs: 8
+  min_epochs: 2
+  patience: 30
+  gpus: ${train.gpus}
+  num_workers: ${train.num_workers}
+  batch_size: 512
+  save_mlp: false
+ext_fea:
+  finetune: false
+  normTrain: true
+  batch_size: 256
+  mode: me
+  rn_decay: 0.99
+  use_pretrain: true
+data_0:
+  dataset_name: SEED
+  data_dir: /mnt/dataset0/qingzhu/AutoICA_Processed_EEG/SEED/Processed_data_filter_0.50_47.00_AutoICA_Cus_Threshold
+  fs: 125
+  n_channs: 60
+  n_session: 3
+  n_subs: 15
+  n_vids: 15
+  n_class: 3
+  timeLen: 5
+  timeStep: 2
+  timeLen2: 1
+  timeStep2: 1
+data_1:
+  dataset_name: SEEDIV
+  data_dir: /mnt/dataset0/qingzhu/AutoICA_Processed_EEG/SEED-IV-new/Processed_MAT
+  fs: 125
+  n_channs: 62
+  n_session: 3
+  n_subs: 15
+  n_vids: 24
+  n_class: 4
+  timeLen: 5
+  timeStep: 2
+  timeLen2: 1
+  timeStep2: 1
+data_2:
+  dataset_name: FACED
+  data_dir: /mnt/dataset0/xinke/nsy/Faced_blink_only
+  fs: 125
+  n_channs: 30
+  n_session: 1
+  n_subs: 123
+  n_vids: 28
+  n_class: 9
+  timeLen: 5
+  timeStep: 2
+  timeLen2: 1
+  timeStep2: 1
+  class_names:
+  - Anger
+  - Disgust
+  - Fear
+  - Sadness
+  - neutral
+  - Amusement
+  - Inspiration
+  - Joy
+  - Tenderness
+  class_proj:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  channels:
+  - FP1
+  - FP2
+  - FZ
+  - F3
+  - F4
+  - F7
+  - F8
+  - FC1
+  - FC2
+  - FC5
+  - FC6
+  - CZ
+  - C3
+  - C4
+  - T7
+  - T8
+  - CP1
+  - CP2
+  - CP5
+  - CP6
+  - PZ
+  - P3
+  - P4
+  - P7
+  - P8
+  - PO3
+  - PO4
+  - OZ
+  - O1
+  - O2
+data_val:
+  dataset_name: SEEDV
+  data_dir: /mnt/dataset0/qingzhu/AutoICA_Processed_EEG/SEED_V/Processed_data_filter_0.50_47.00_AutoICA_Def_Threshold/data_3in1
+  fs: 125
+  n_channs: 60
+  n_session: 3
+  n_subs: 16
+  n_vids: 15
+  n_class: 5
+  timeLen: 5
+  timeStep: 2
+  timeLen2: 1
+  timeStep2: 1
+model:
+  _target_: model.models.Conv_att_simple_new
+  n_timeFilters: 16
+  timeFilterLen: 30
+  n_msFilters: 4
+  msFilter_timeLen: 3
+  n_channs: ${data.n_channs}
+  dilation_array:
+  - 1
+  - 3
+  - 6
+  - 12
+  seg_att: 15
+  avgPoolLen: 15
+  timeSmootherLen: 3
+  multiFact: 2
+  stratified:
+  - initial
+  - middle1
+  - middle2
+  activ: softmax
+  temp: 1.0
+  saveFea: false
+  has_att: true
+  extract_mode: ${ext_fea.mode}
+  global_att: false

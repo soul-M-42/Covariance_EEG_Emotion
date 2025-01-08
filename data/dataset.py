@@ -132,7 +132,6 @@ class EEG_Dataset(Dataset):
         self.mods = mods
         
         self.sliced_data_dir = os.path.join(self.save_dir, f'sliced_len{cfg.timeLen}_step{cfg.timeStep}')
-
         if not sliced:
             if not os.path.exists(self.sliced_data_dir+'/saved.npy'):
                 print('slicing processed dataset')
