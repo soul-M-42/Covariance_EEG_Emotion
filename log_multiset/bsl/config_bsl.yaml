@@ -17,21 +17,21 @@ loss:
   factor: 1.0
   to_riem: true
   proto_loss: false
-  align_loss: true
-  align_f: 0
+  align_loss: false
+  align_f: 0.1
   clisa_loss: true
   L1_loss: false
   MLP_loss: false
 log:
   is_logger: true
-  logpath: log_SEEDVII_test
+  logpath: log_multiset
   run: 4
   proj_name: bsl
   exp_name: ${log.proj_name}
   cp_dir: ./cp
 train:
-  n_fold: 4
-  n_pairs: 16
+  n_fold: 1
+  n_pairs: 1024
   gpus:
   - 0
   iftest: false
@@ -76,11 +76,13 @@ mlp:
   num_workers: ${train.num_workers}
   batch_size: 512
   save_mlp: false
+  folds: 4
+  samples: 3
 ext_fea:
   finetune: false
   normTrain: true
   batch_size: 256
-  mode: me
+  mode: de
   rn_decay: 0.99
   use_pretrain: true
 data_0:
@@ -110,19 +112,6 @@ data_1:
   timeLen2: 1
   timeStep2: 1
 data_2:
-  dataset_name: SEEDVII
-  data_dir: /mnt/dataset0/qingzhu/AutoICA_Processed_EEG/SEED-VII/Processed_MAT
-  fs: 125
-  n_channs: 62
-  n_session: 4
-  n_subs: 20
-  n_vids: 20
-  n_class: 7
-  timeLen: 5
-  timeStep: 2
-  timeLen2: 1
-  timeStep2: 1
-data_3:
   dataset_name: FACED
   data_dir: /mnt/dataset0/xinke/nsy/Faced_blink_only
   fs: 125
@@ -199,6 +188,55 @@ data_val:
   timeStep: 2
   timeLen2: 1
   timeStep2: 1
+  val_subs_all:
+  - - 0
+    - 5
+    - 11
+    - 15
+  - - 12
+    - 7
+    - 14
+    - 13
+  - - 4
+    - 9
+    - 2
+    - 3
+  - - 1
+    - 6
+    - 10
+    - 8
+  - - 6
+    - 0
+    - 8
+    - 9
+  - - 13
+    - 11
+    - 12
+    - 2
+  - - 10
+    - 15
+    - 1
+    - 4
+  - - 14
+    - 3
+    - 5
+    - 7
+  - - 5
+    - 2
+    - 14
+    - 11
+  - - 6
+    - 1
+    - 8
+    - 9
+  - - 15
+    - 0
+    - 3
+    - 7
+  - - 4
+    - 10
+    - 13
+    - 12
 model:
   _target_: model.models.Conv_att_simple_new
   n_timeFilters: 16

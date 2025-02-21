@@ -1,13 +1,10 @@
 
 defaults:
   - _self_
-  # - data_1: SEEDV_small
   - data@data_0: SEED
   - data@data_1: SEEDIV
   - data@data_2: FACED_blink_only
-  # - data_2: FACED_blink_only_small
-  # - data_2: SEEDV_small
-  - data@data_val: SEEDV
+  - data@data_val: SEED
   # - data_2: FACED_blink_only_small
   # - data_2: SEEDV_small
   # WARNING: REMEMBER TO CHANGE train.n_fold WHEN CHANGE DATASET/DATASET_SMALL
@@ -15,6 +12,7 @@ defaults:
   # NORMAL: fold=16
   - model: cnn_att
 
+data_cfg_list:
 seed: 7
 
 channel_encoder:
@@ -35,19 +33,19 @@ loss:
   factor: 1.0
   to_riem: True
   proto_loss: False
-  align_loss: True
-  align_f: 0
+  align_loss: False
+  align_f: 0.1
   clisa_loss: True
   L1_loss: False
   MLP_loss: False
 
 log:
   is_logger: True
-  logpath: 'log_SEEDVII_test'
+  logpath: 'log_multiset'
   # logpath: 'log'
   # logpath: 'log'
   run: 4
-  proj_name: bsl
+  proj_name: test
   # CDA for Cross Dataset Align
 
   exp_name: ${log.proj_name}
@@ -56,7 +54,7 @@ log:
   cp_dir: './cp'   
 
 train:
-  n_fold: 4
+  n_fold: 1
   n_pairs: 1024
   gpus: [0]
   iftest: False
@@ -112,9 +110,9 @@ ext_fea:
   finetune: False
   normTrain: True
   batch_size: 256
-  mode: 'me'
+  mode: 'de'
   rn_decay: 0.990
-  use_pretrain: True
+  use_pretrain: False
 
 
 hydra:

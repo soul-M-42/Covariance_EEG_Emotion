@@ -33,8 +33,7 @@ def train_mlp(cfg: DictConfig) -> None:
 
     n_per = round(cfg.data_val.n_subs / n_folds)
     best_val_acc_list = []
-    val_subs_all = cfg.data_val.val_subs_all
-    n_folds = len(val_subs_all)
+    
     for fold in range(0,n_folds):
         fold_acc_max = 0
         cp_dir = os.path.join(cfg.log.cp_dir, cfg.data_val.dataset_name, f'r{cfg.log.run}')
@@ -44,19 +43,15 @@ def train_mlp(cfg: DictConfig) -> None:
                                    project=cfg.log.proj_name, log_model="all")
         cp_monitor = None if n_folds == 1 else "mlp/val/acc"
         es_monitor = "mlp/train/acc" if n_folds == 1 else "mlp/val/acc"
-        checkpoint_callback = ModelCheckpoint(monitor=cp_monitor, verbose=True, mode="max", 
-                                              dirpath=cp_dir, filename=f'mlp_f{fold}_wd={cfg.mlp.wd}_'+'{epoch}',
-                                              save_top_k=1,
-                                              )
+
         earlyStopping_callback = EarlyStopping(monitor=es_monitor, mode="max", patience=cfg.mlp.patience)
         log.info(f"fold:{fold}")
-        # if n_folds == 1:
-        #     val_subs = []
-        # elif fold < n_folds - 1:
-        #     val_subs = np.arange(n_per * fold, n_per * (fold + 1))
-        # else:
-        #     val_subs = np.arange(n_per * fold, cfg.data_val.n_subs)   
-        val_subs = val_subs_all[fold]         
+        if n_folds == 1:
+            val_subs = []
+        elif fold < n_folds - 1:
+            val_subs = np.arange(n_per * fold, n_per * (fold + 1))
+        else:
+            val_subs = np.arange(n_per * fold, cfg.data_val.n_subs)            
         train_subs = list(set(np.arange(cfg.data_val.n_subs)) - set(val_subs))
         # if len(val_subs) == 1:
         #     val_subs = list(val_subs) + train_subs
@@ -71,32 +66,48 @@ def train_mlp(cfg: DictConfig) -> None:
         # cov_fea = np.load(save_path)
         # log.info('cov_fea load from: '+save_path)
         save_path = os.path.join(save_dir,cfg.log.exp_name+f'_f{fold}_fea_{"pretrain_" if cfg.ext_fea.use_pretrain else ""}{cfg.ext_fea.mode if cfg.ext_fea.use_pretrain else "DE"}.npy')
-        data2 = np.load(save_path)
-        log.info('data2 load from: '+save_path)
-        # print(data2[:,160])
-        if np.isnan(data2).any():
-            log.warning('nan in data2')
-            data2 = np.where(np.isnan(data2), 0, data2)
-        fea_dim = data2.shape[-1]
-        data2 = data2.reshape(cfg.data_val.n_subs, -1, data2.shape[-1])
-        print(f'data_fea.shape:{data2.shape}')
-        save_batch_images(data2[:, :1000, :], 'fea_mlp')
-        onesub_label2 = np.load(save_dir+'/onesub_label2.npy')
-        labels2_train = np.tile(onesub_label2, len(train_subs))
-        labels2_val = np.tile(onesub_label2, len(val_subs))
-        trainset2 = PDataset(data2[train_subs].reshape(-1,data2.shape[-1]), labels2_train)
-        # trainset2 = PDataset(data2[val_subs].reshape(-1,data2.shape[-1]), labels2_val)
-        valset2 = PDataset(data2[val_subs].reshape(-1,data2.shape[-1]), labels2_val)
-        trainLoader = DataLoader(trainset2, batch_size=cfg.mlp.batch_size, shuffle=True, num_workers=cfg.mlp.num_workers)
-        valLoader = DataLoader(valset2, batch_size=cfg.mlp.batch_size, shuffle=False, num_workers=cfg.mlp.num_workers)
-        model_mlp = simpleNN3(fea_dim, cfg.mlp.hidden_dim, cfg.mlp.out_dim,0.1)
-        predictor = MLPModel(model_mlp, cfg.mlp)
-        trainer = pl.Trainer(logger=wandb_logger, callbacks=[checkpoint_callback, earlyStopping_callback],
-                             max_epochs=cfg.mlp.max_epochs, min_epochs=cfg.mlp.min_epochs,
-                             accelerator='gpu', devices=cfg.mlp.gpus, limit_val_batches=1.0)
-        trainer.fit(predictor, trainLoader, valLoader)
-        if cfg.train.valid_method != 1:
-            best_val_acc_list.append(trainer.checkpoint_callback.best_model_score.detach().cpu().numpy())
+        data = np.load(save_path)
+        log.info('data load from: '+save_path)
+        # print(data[:,160])
+        if np.isnan(data).any():
+            log.warning('nan in data')
+            data = np.where(np.isnan(data), 0, data)
+        fea_dim = data.shape[-1]
+        n_sub = cfg.data_val.n_subs
+        data = data.reshape(n_sub, -1, data.shape[-1])
+        n_fea = data.shape[1]
+        print(f'data_fea.shape:{data.shape}')
+        # [sub, n_fea, dim_fea]
+        # save_batch_images(data[:, :1000, :], 'fea_mlp')
+        onesub_label = np.load(save_dir+'/onesub_label2.npy')
+        labels_train = np.tile(onesub_label, len(train_subs))
+        labels_val = np.tile(onesub_label, len(val_subs))
+        sub_val_acc_best = []
+        for i_sub in range(n_sub):
+            checkpoint_callback = ModelCheckpoint(monitor=cp_monitor, verbose=True, mode="max", 
+                                        dirpath=cp_dir, filename=f'mlp_f{fold}_wd={cfg.mlp.wd}_'+'{epoch}',
+                                        save_top_k=1,
+                                        )
+            trainset = PDataset(data[i_sub, :n_fea//2].reshape(-1,fea_dim), onesub_label[:n_fea//2])
+            valset = PDataset(data[i_sub, n_fea//2:].reshape(-1,fea_dim), onesub_label[n_fea//2:])
+            # testset = PDataset(data[i_sub, (n_fea//3+n_fea//3):].reshape(-1,fea_dim), onesub_label[(n_fea//3+n_fea//3):])
+            trainLoader = DataLoader(trainset, batch_size=cfg.mlp.batch_size, shuffle=True, num_workers=cfg.mlp.num_workers)
+            valLoader = DataLoader(valset, batch_size=cfg.mlp.batch_size, shuffle=False, num_workers=cfg.mlp.num_workers)
+            # testLoader = DataLoader(testset, batch_size=cfg.mlp.batch_size, shuffle=False, num_workers=cfg.mlp.num_workers)
+
+        
+            model_mlp = simpleNN3(fea_dim, cfg.mlp.hidden_dim, cfg.mlp.out_dim,0.1)
+            predictor = MLPModel(model_mlp, cfg.mlp)
+            limit_val_batches = 0.0 if n_folds == 1 else 1.0
+            trainer = pl.Trainer(logger=wandb_logger, callbacks=[checkpoint_callback],
+                                max_epochs=cfg.mlp.max_epochs, min_epochs=cfg.mlp.min_epochs,
+                                accelerator='gpu', devices=cfg.mlp.gpus, limit_val_batches=limit_val_batches)
+            trainer.fit(predictor, trainLoader, valLoader)
+            print(f'Sub {i_sub} val_best = {trainer.checkpoint_callback.best_model_score.detach().cpu().numpy()}')
+            sub_val_acc_best.append(trainer.checkpoint_callback.best_model_score.detach().cpu().numpy())
+        print(f'被试内平均acc:{np.mean(sub_val_acc_best)}')
+        # if cfg.train.valid_method != 1:
+        #     best_val_acc_list.append(trainer.callback_metrics['mlp/val/acc'].detach().cpu().numpy())
         wandb.finish()
         
         if cfg.train.iftest :

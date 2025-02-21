@@ -423,9 +423,10 @@ class MultiModel_PL(pl.LightningModule):
                 filterLen=cfg.channel_encoder.filterLen,
                 n_heads=cfg.channel_encoder.n_heads)
             # self.channelwiseEncoder = channelwiseEncoder(n_filter=cfg.channel_encoder.out_dim, standard_channels=cfg.data_1.channels)
-            self.alignmentModule_1 = Channel_Alignment(cfg.data_1.n_channs, cfg.channel_encoder.n_channel_uni)
-            self.alignmentModule_2 = Channel_Alignment(cfg.data_2.n_channs, cfg.channel_encoder.n_channel_uni)
-            self.alignmentModule_3 = Channel_Alignment(cfg.data_val.n_channs, cfg.channel_encoder.n_channel_uni)
+            self.alignmentModules = [Channel_Alignment(cfg_i.n_channs, cfg.channel_encoder.n_channel_uni) for cfg_i in cfg.data_cfg_list]
+            # self.alignmentModule_1 = Channel_Alignment(cfg.data_1.n_channs, cfg.channel_encoder.n_channel_uni)
+            # self.alignmentModule_2 = Channel_Alignment(cfg.data_2.n_channs, cfg.channel_encoder.n_channel_uni)
+            # self.alignmentModule_3 = Channel_Alignment(cfg.data_val.n_channs, cfg.channel_encoder.n_channel_uni)
             self.sFilter = sFilter(dim_in=cfg.channel_encoder.out_dim, n_channs=cfg.channel_encoder.n_channel_uni, sFilter_timeLen=3, multiFact=1)
             self.proj = Clisa_Proj(n_dim_in=cfg.channel_encoder.out_dim * cfg.channel_encoder.n_channel_uni)
             # self.proj = Clisa_Proj(n_dim_in=cfg.channel_encoder.n_channel_uni * cfg.channel_encoder.out_dim)
@@ -451,9 +452,10 @@ class MultiModel_PL(pl.LightningModule):
                                                     has_att=True,
                                                     global_att=False)
             self.proj = Clisa_Proj(n_dim_in=256)
-            self.c_mlp_0 = Channel_mlp(cfg.data_0.n_channs, cfg.channel_encoder.n_channel_uni)
-            self.c_mlp_1 = Channel_mlp(cfg.data_1.n_channs, cfg.channel_encoder.n_channel_uni)
-            self.c_mlp_2 = Channel_mlp(cfg.data_2.n_channs, cfg.channel_encoder.n_channel_uni)
+            # self.c_mlp_0 = Channel_mlp(cfg.data_0.n_channs, cfg.channel_encoder.n_channel_uni)
+            # self.c_mlp_1 = Channel_mlp(cfg.data_1.n_channs, cfg.channel_encoder.n_channel_uni)
+            # self.c_mlp_2 = Channel_mlp(cfg.data_2.n_channs, cfg.channel_encoder.n_channel_uni)
+            self.c_mlps = [Channel_mlp(cfg_i.n_channs, cfg.channel_encoder.n_channel_uni) for cfg_i in cfg.data_cfg_list]
             self.c_mlp_3 = Channel_mlp(cfg.data_val.n_channs, cfg.channel_encoder.n_channel_uni)
         # self.decoder = ConvOut(in_shape=cfg.channel_encoder.n_channel_uni)
         # self.decoder = ConvOut_Euclidean(out_channels=64)
@@ -538,33 +540,17 @@ class MultiModel_PL(pl.LightningModule):
         return centroid
 
     # CDA for Cross_dataset Alignment
-    def CDA_loss(self, cov_0, cov_1, cov_2):
-        cov_0 = cov_0.reshape(2, -1, self.cfg.channel_encoder.out_dim, self.cfg.channel_encoder.n_channel_uni, self.cfg.channel_encoder.n_channel_uni)
-        cov_1 = cov_1.reshape(2, -1, self.cfg.channel_encoder.out_dim, self.cfg.channel_encoder.n_channel_uni, self.cfg.channel_encoder.n_channel_uni)
-        cov_2 = cov_2.reshape(2, -1, self.cfg.channel_encoder.out_dim, self.cfg.channel_encoder.n_channel_uni, self.cfg.channel_encoder.n_channel_uni)
-        # print(cov_0.shape, cov_1.shape, cov_2.shape)
-        # cen_0 = torch.zeros(self.cfg.channel_encoder.out_dim, self.cfg.channel_encoder.n_channel_uni, self.cfg.channel_encoder.n_channel_uni)
-        # cen_1 = torch.zeros(self.cfg.channel_encoder.out_dim, self.cfg.channel_encoder.n_channel_uni, self.cfg.channel_encoder.n_channel_uni)
-        # cen_2 = torch.zeros(self.cfg.channel_encoder.out_dim, self.cfg.channel_encoder.n_channel_uni, self.cfg.channel_encoder.n_channel_uni)
-        # for dim in range(self.cfg.channel_encoder.out_dim):
-        #     save_batch_images(cov_0[0,:,dim], f'covmats/ind_0/{dim}')
-        #     save_batch_images(cov_1[0,:,dim], f'covmats/ind_1/{dim}')
+    def CDA_loss(self, cov_mats):
         dis = 0
         for dim in range(self.cfg.channel_encoder.out_dim):
             ind_cen = []
-            ind_cen.append(self.get_ind_cen(cov_0[0][:, dim]))
-            ind_cen.append(self.get_ind_cen(cov_0[1][:, dim]))
-            ind_cen.append(self.get_ind_cen(cov_1[0][:, dim]))
-            ind_cen.append(self.get_ind_cen(cov_1[1][:, dim]))
-            ind_cen.append(self.get_ind_cen(cov_2[0][:, dim]))
-            ind_cen.append(self.get_ind_cen(cov_2[1][:, dim]))
+            for cov_sub_i in cov_mats:
+                ind_cen.append(self.get_ind_cen(cov_sub_i[:, dim]))
             for i in range(len(ind_cen)):
                 for j in range(i+1, len(ind_cen)):
                     dis = dis + self.frobenius_distance(ind_cen[i], ind_cen[j])
-        # save_batch_images(cen_0, 'cen_0_sample')
         loss = torch.log(dis + 1.0) * self.cfg.loss.align_f
-        # save_img(torch.concat([cen_0, cen_1, cen_2]), 'cov_cen.png')
-        return loss, None, None, None
+        return loss
 
     def frobenius_distance(self, matrix_a, matrix_b):
         return torch.linalg.norm(matrix_a-matrix_b, 'fro')
@@ -798,17 +784,10 @@ class MultiModel_PL(pl.LightningModule):
         mat = self.frechet_mean(mat)
         return mat
     
-    def forward(self, x, dataset='0', mode = 'dev'):
+    def forward(self, x, dataset=0, mode = 'dev'):
         if(mode == 'dev'):
             x = self.mlla(x)
-            if dataset == '0':
-                x = self.c_mlp_0(x)
-            if dataset == '1':
-                x = self.c_mlp_1(x)
-            if dataset == '2':
-                x = self.c_mlp_2(x)
-            if dataset == '3':
-                x = self.c_mlp_0(x)
+            x = self.c_mlps[dataset](x)
             if self.saveFea:
                 self.channelwiseEncoder.saveFea = True
             fea = self.channelwiseEncoder(x)
@@ -853,165 +832,47 @@ class MultiModel_PL(pl.LightningModule):
         return
     # remain to be implemented
     def training_step(self, batch, batch_idx):
-        if self.phase == 'train':
-            [x_0, x_1, x_2, x_3], [y_0, y_1, y_2, y_3] = batch
-            x_0 = x_0[0]
-            x_1 = x_1[0]
-            x_2 = x_2[0]
-            x_3 = x_3[0]
-            y_0 = y_0[0]
-            y_1 = y_1[0]
-            y_2 = y_2[0]
-            y_3 = y_3[0]
-            # x_1, y_1 = batch
-            # print(x_1.shape, y_1.shape)
+        x_list, y_list = batch
+        random_set = random.sample(range(len(x_list)-1), 3)
+        x_list = [x_list[i] for i in random_set]
+        y_list = [y_list[i] for i in random_set]
+        features = []
+        fea_clisa_list = []
+        for i, x in enumerate(x_list):
+            fea, fea_clisa = self.forward(x[0], random_set[i])
+            features.append(fea)
+            fea_clisa_list.append(fea_clisa)
+        
+        loss = 0
 
-            fea_0, fea_clisa_0 = self.forward(x_0, '0')
-            fea_1, fea_clisa_1 = self.forward(x_1, '1')
-            fea_2, fea_clisa_2 = self.forward(x_2, '2')
-            # fea_3, fea_clisa_3 = self.forward(x_3, '3')
+        # 1. clisa_loss
+        if self.cfg.loss.clisa_loss:
+            loss_clisa = [self.loss_clisa_fea(fea_clisa_i) for fea_clisa_i in fea_clisa_list]
             
-            loss = 0
-            loss_0 = 0
-            loss_1 = 0
-            loss_2 = 0
-
-            # 1. proto_loss
-            # if self.cfg.align.proto_loss:
-            #     if self.proto is None:
-            #         self.proto = self.init_proto_rand(dim=self.cfg.channel_encoder.n_channel_uni, n_class=9)
-            #     cov_1 = self.cov_mat(fea_1)
-            #     cov_2 = self.cov_mat(fea_2)
-            #     for i in range(len(cov_1)):
-            #         cov_1[i] = div_std(cov_1[i])
-            #     for i in range(len(cov_2)):
-            #         cov_2[i] = div_std(cov_2[i])
-            #     loss_proto_1, acc_1 = self.loss_proto(cov_1, y_1, self.proto)
-            #     loss_proto_2, acc_2 = self.loss_proto(cov_2, y_2, self.proto)
-            #     loss_1 = loss_1 + loss_proto_1
-            #     loss_2 = loss_2 + loss_proto_2
-            #     loss = loss + loss_proto_1 + loss_proto_2
-            #     self.log_dict({
-            #             'loss_proto_1/train': loss_proto_1, 
-            #             'loss_proto_2/train': loss_proto_2, 
-            #             'acc_proto_1/train': acc_1,
-            #             'acc_proto_2/train': acc_2,
-            #             },
-            #             logger=self.is_logger,
-            #             on_step=False, on_epoch=True, prog_bar=True)
-            #     # print(f'loss_proto_1={loss_proto_1} loss_proto_2={loss_proto_2}\nacc_proto_1={acc_1} acc_proto_2={acc_2}')
-
-            # 2. clisa_loss
-            if self.cfg.loss.clisa_loss:
-                # loss_clisa_1 = self.loss_clisa(cov_1, y_1)
-                # loss_clisa_2 = self.loss_clisa(cov_2, y_2)
-                loss_clisa_0, acc1_0, acc5_0 = self.loss_clisa_fea(fea_clisa_0)
-                loss_clisa_1, acc1_1, acc5_1 = self.loss_clisa_fea(fea_clisa_1)
-                loss_clisa_2, acc1_2, acc5_2 = self.loss_clisa_fea(fea_clisa_2)
-                loss_0 = loss_0 + loss_clisa_0
-                loss_1 = loss_1 + loss_clisa_1
-                loss_2 = loss_2 + loss_clisa_2
-                loss = loss + loss_clisa_0
-                loss = loss + loss_clisa_1
-                loss = loss + loss_clisa_2
-                self.log_dict({
-                        'loss_clisa_0/train': loss_clisa_0, 
-                        'loss_clisa_1/train': loss_clisa_1, 
-                        'loss_clisa_2/train': loss_clisa_2, 
-                        'acc1_0/train': acc1_0, 
-                        'acc1_1/train': acc1_1, 
-                        'acc1_2/train': acc1_2,
-                        'acc5_0/train': acc5_0, 
-                        'acc5_1/train': acc5_1, 
-                        'acc5_2/train': acc5_2,
-                        },
-                        logger=self.is_logger,
-                        on_step=False, on_epoch=True, prog_bar=True)
-
-            # add L1 loss to c_mlp output
-            L1_dim = 2
-            loss_L1 = 0
-            L1_weight = 1e-5
-            if self.cfg.loss.L1_loss:
-                loss_L1 += torch.sum(torch.abs(fea_0))
-                loss_L1 += torch.sum(torch.abs(fea_1))
-                loss_L1 += torch.sum(torch.abs(fea_2))
-            else:
-                loss_L1 += torch.sum(torch.abs(fea_0.detach()))
-                loss_L1 += torch.sum(torch.abs(fea_1.detach()))
-                loss_L1 += torch.sum(torch.abs(fea_2.detach()))
-            loss_L1 = L1_weight * loss_L1
-            if self.cfg.loss.L1_loss:
-                loss = loss + loss_L1
+        for i, (clisa_loss, acc1, acc5) in enumerate(loss_clisa):
+            loss += clisa_loss
             self.log_dict({
-                'loss_L1/train': loss_L1,    
+                f'loss_clisa_{random_set[i]}/train': clisa_loss,
+                f'acc1_{random_set[i]}/train': acc1,
+                f'acc5_{random_set[i]}/train': acc5,
+            }, logger=self.is_logger, on_step=False, on_epoch=True, prog_bar=True)
+
+        if self.cfg.loss.align_loss:
+            cov_mats = []
+            for i, fea_i in enumerate(features):
+                cov_mat_i = self.cov_mat(fea_i)
+                cov_mats.append(cov_mat_i[:cov_mat_i.shape[0]//2])
+                cov_mats.append(cov_mat_i[cov_mat_i.shape[0]//2:])
+            align_loss = self.CDA_loss(cov_mats)
+            loss += align_loss
+            
+
+            
+        self.log_dict({
+                'loss_total/train': loss, 
                 },
                 logger=self.is_logger,
                 on_step=False, on_epoch=True, prog_bar=True)
-            
-            # 4. cov Riemanian align loss
-            loss_align = 0
-            cov_0 = self.cov_mat(fea_0) # [B_0, dim, C, C]
-            cov_1 = self.cov_mat(fea_1)
-            cov_2 = self.cov_mat(fea_2)
-            # cov_3 = self.cov_mat(fea_3)
-            if self.cfg.loss.align_loss:
-                cen_loss, cen_0, cen_1, cen_2 = self.CDA_loss(cov_0, cov_1, cov_2)
-            else:
-                cen_loss, cen_0, cen_1, cen_2 = self.CDA_loss(cov_0.detach(), cov_1.detach(), cov_2.detach())
-            # with torch.no_grad():
-            #     self.cov_0_mean += cen_0 / self.cfg.train.n_pairs
-            #     self.cov_1_mean += cen_1 / self.cfg.train.n_pairs
-            #     self.cov_2_mean += cen_2 / self.cfg.train.n_pairs
-            # save_batch_images(torch.concat([self.cov_0_mean, self.cov_1_mean, self.cov_2_mean]).unsqueeze(0), 'cov_mean')
-            # save_batch_images(torch.concat([cen_0, cen_1, cen_2]).unsqueeze(0), 'cov_cen')
-            loss_align = loss_align + cen_loss
-            # loss_align = loss_align + self.CDA_loss(cov_1.detach(), cov_3)
-            # loss_align = loss_align + self.CDA_loss(cov_2.detach(), cov_3)
-            # print(f'loss_align={loss_align}')
-            self.log_dict({
-                'loss_align/train': loss_align,    
-                },
-                logger=self.is_logger,
-                on_step=False, on_epoch=True, prog_bar=True)
-            if self.cfg.loss.align_loss:
-                loss = loss + loss_align
-                
-            self.log_dict({
-                    'loss_total/train': loss, 
-                    },
-                    logger=self.is_logger,
-                    on_step=False, on_epoch=True, prog_bar=True)
-        
-        elif self.phase == 'finetune':
-            # save_batch_images(torch.concat([self.cov_0_mean, self.cov_1_mean, self.cov_2_mean]).unsqueeze(0), 'cov_cen')
-            loss_align = 0
-            [x_3], [y_3] = batch
-            x_3 = x_3[0]
-            y_3 = y_3[0]
-            fea_3, fea_clisa_3 = self.forward(x_3, '3')
-            loss_clisa_3, acc1_3, acc5_3 = self.loss_clisa_fea(fea_clisa_3)
-            loss = loss_clisa_3
-            if(self.cfg.finetune.align):
-                cov_3 = self.cov_mat(fea_3)
-                cen_3 = self.get_ind_cen(cov_3)
-                # save_batch_images(cov_3, 'cov_3')
-                dis = 0
-                dis = dis + self.frobenius_distance(cen_3, self.cov_0_mean)
-                dis = dis + self.frobenius_distance(cen_3, self.cov_1_mean)
-                dis = dis + self.frobenius_distance(cen_3, self.cov_2_mean)
-                loss_align = dis
-                loss_align = torch.log(dis + 1.0)
-                loss = loss +loss_align
-            self.log_dict({
-                    'loss_align/train': loss_align, 
-                    'loss_clisa/train': loss_clisa_3,   
-                    'acc1_3/train': acc1_3,
-                    'loss_total/train': loss, 
-                    },
-                    logger=self.is_logger,
-                    on_step=False, on_epoch=True, prog_bar=True)
-        
 
         # Check grad 
         check_grad = 0
@@ -1027,190 +888,50 @@ class MultiModel_PL(pl.LightningModule):
 
     
     def validation_step(self, batch, batch_idx):
-        if self.phase == 'train':
-            [x_0, x_1, x_2, x_3], [y_0, y_1, y_2, y_3] = batch
-            x_0 = x_0[0]
-            x_1 = x_1[0]
-            x_2 = x_2[0]
-            x_3 = x_3[0]
-            y_0 = y_0[0]
-            y_1 = y_1[0]
-            y_2 = y_2[0]
-            y_3 = y_3[0]
-            # x_1, y_1 = batch
-            # print(x_1.shape, y_1.shape)
+        x_list, y_list = batch
+        features = []
+        fea_clisa_list = []
+        for i, x in enumerate(x_list):
+            fea, fea_clisa = self.forward(x[0], i)
+            features.append(fea)
+            fea_clisa_list.append(fea_clisa)
+        
+        loss = 0
 
-            fea_0, fea_clisa_0 = self.forward(x_0, '0')
-            fea_1, fea_clisa_1 = self.forward(x_1, '1')
-            fea_2, fea_clisa_2 = self.forward(x_2, '2')
-            # fea_3, fea_clisa_3 = self.forward(x_3, '3')
-            
-            # cov_1 = torch.mean(self.cov_mat(fea_1), dim=0) / self.cfg.train.n_pairs
-            # cov_2 = torch.mean(self.cov_mat(fea_2), dim=0) / self.cfg.train.n_pairs
-            # with torch.no_grad():
-            #     self.cov_1_mean += cov_1  # 使用 in-place 加法操作
-            #     self.cov_2_mean += cov_2  # 使用 in-place 加法操作
-
-            # save_batch_images(torch.stack([self.cov_1_mean, self.cov_2_mean]), 'cov_mean_extractor')
-
-
-            loss = 0
-            loss_0 = 0
-            loss_1 = 0
-            loss_2 = 0
-
-            # 1. proto_loss
-            if self.cfg.loss.proto_loss:
-                if self.proto is None:
-                    self.proto = self.init_proto_rand(dim=self.cfg.channel_encoder.n_channel_uni, n_class=9)
-                cov_1 = self.cov_mat(fea_1)
-                cov_2 = self.cov_mat(fea_2)
-                for i in range(len(cov_1)):
-                    cov_1[i] = div_std(cov_1[i])
-                for i in range(len(cov_2)):
-                    cov_2[i] = div_std(cov_2[i])
-                loss_proto_1, acc_1 = self.loss_proto(cov_1, y_1, self.proto)
-                loss_proto_2, acc_2 = self.loss_proto(cov_2, y_2, self.proto)
-                loss_1 = loss_1 + loss_proto_1
-                loss_2 = loss_2 + loss_proto_2
-                loss = loss + loss_proto_1 + loss_proto_2
-                self.log_dict({
-                        'loss_proto_1/val': loss_proto_1, 
-                        'loss_proto_2/val': loss_proto_2, 
-                        'acc_proto_1/val': acc_1,
-                        'acc_proto_2/val': acc_2,
-                        },
-                        logger=self.is_logger,
-                        on_step=False, on_epoch=True, prog_bar=True)
-                # print(f'loss_proto_1={loss_proto_1} loss_proto_2={loss_proto_2}\nacc_proto_1={acc_1} acc_proto_2={acc_2}')
-
-            # 2. clisa_loss
-            if self.cfg.loss.clisa_loss:
-                # loss_clisa_1 = self.loss_clisa(cov_1, y_1)
-                # loss_clisa_2 = self.loss_clisa(cov_2, y_2)
-                loss_clisa_0, acc1_0, acc5_0 = self.loss_clisa_fea(fea_clisa_0)
-                loss_clisa_1, acc1_1, acc5_1 = self.loss_clisa_fea(fea_clisa_1)
-                loss_clisa_2, acc1_2, acc5_2 = self.loss_clisa_fea(fea_clisa_2)
-                loss_0 = loss_0 + loss_clisa_0
-                loss_1 = loss_1 + loss_clisa_1
-                loss_2 = loss_2 + loss_clisa_2
-                loss = loss + loss_clisa_0
-                loss = loss + loss_clisa_1
-                loss = loss + loss_clisa_2
-                self.log_dict({
-                        'loss_clisa_0/val': loss_clisa_0, 
-                        'loss_clisa_1/val': loss_clisa_1, 
-                        'loss_clisa_2/val': loss_clisa_2, 
-                        'acc1_0/val': acc1_0, 
-                        'acc1_1/val': acc1_1, 
-                        'acc1_2/val': acc1_2,
-                        'acc5_0/val': acc5_0, 
-                        'acc5_1/val': acc5_1, 
-                        'acc5_2/val': acc5_2,
-                        },
-                        logger=self.is_logger,
-                        on_step=False, on_epoch=True, prog_bar=True)
-                # print(f'loss_clisa_1={loss_clisa_1} loss_clisa_2={loss_clisa_2} ')
-            
-            # 3. emotion MLP classification
-            if self.cfg.loss.MLP_loss:
-                loss_MLP_1, acc_MLP_1 = self.loss_MLP(fea_1, y_1, self.MLP_1)
-                loss_MLP_2, acc_MLP_2 = self.loss_MLP(fea_2, y_2, self.MLP_2)
-                self.log_dict({
-                    'loss_MLP_1/val': loss_MLP_1, 
-                    'loss_MLP_2/val': loss_MLP_2, 
-                    'loss_MLP_3/val': loss_MLP_3, 
-                    'acc_MLP_1/val': acc_MLP_1, 
-                    'acc_MLP_2/val': acc_MLP_2,  
-                    'acc_MLP_3/val': acc_MLP_3,      
-                    },
-                    logger=self.is_logger,
-                    on_step=False, on_epoch=True, prog_bar=True)
-                loss = loss + loss_MLP_1 + loss_MLP_2
-                loss = loss + loss_MLP_3
-
+        # 2. clisa_loss
+        if self.cfg.loss.clisa_loss:
+            loss_clisa = [self.loss_clisa_fea(fea_clisa_i) for fea_clisa_i in fea_clisa_list]
+        for i, (clisa_loss, acc1, acc5) in enumerate(loss_clisa):
+            loss += clisa_loss
             self.log_dict({
-                    'loss_total/val': loss, 
-                    },
-                    logger=self.is_logger,
-                    on_step=False, on_epoch=True, prog_bar=True)
+                f'loss_clisa_{i}/val': clisa_loss,
+                f'acc1_{i}/val': acc1,
+                f'acc5_{i}/val': acc5,
+            }, logger=self.is_logger, on_step=False, on_epoch=True, prog_bar=True)
+
             
-            # 4. cov Riemanian align loss
-            loss_align = 0
-            cov_0 = self.cov_mat(fea_0)
-            cov_1 = self.cov_mat(fea_1)
-            cov_2 = self.cov_mat(fea_2)
-            # cov_3 = self.cov_mat(fea_3)
-            if self.cfg.loss.align_loss:
-                cen_loss, cen_0, cen_1, cen_2 = self.CDA_loss(cov_0, cov_1, cov_2)
-            else:
-                cen_loss, cen_0, cen_1, cen_2 = self.CDA_loss(cov_0.detach(), cov_1.detach(), cov_2.detach())
-            # with torch.no_grad():
-            #     self.cov_0_mean += cen_0 / self.cfg.train.n_pairs
-            #     self.cov_1_mean += cen_1 / self.cfg.train.n_pairs
-            #     self.cov_2_mean += cen_2 / self.cfg.train.n_pairs
-            # save_batch_images(torch.concat([self.cov_0_mean, self.cov_1_mean, self.cov_2_mean]).unsqueeze (0), 'cov_mean')
-            # save_batch_images(torch.concat([cen_0, cen_1, cen_2]).unsqueeze(0), 'cov_cen')
-            loss_align = loss_align + cen_loss
-            # loss_align = loss_align + self.CDA_loss(cov_1.detach(), cov_3)
-            # loss_align = loss_align + self.CDA_loss(cov_2.detach(), cov_3)
-            # print(f'loss_align={loss_align}')
-            self.log_dict({
-                'loss_align/val': loss_align,    
+        self.log_dict({
+                'loss_total/val': loss, 
                 },
                 logger=self.is_logger,
                 on_step=False, on_epoch=True, prog_bar=True)
-            if self.cfg.loss.align_loss:
-                loss = loss + loss_align
+    
+        # Check grad 
+        check_grad = 0
+        if check_grad:
+            for name, param in self.named_parameters():
+                if param.grad is not None:
+                    grad_norm = param.grad.data.norm(2).item()
+                    print(f'grad_norm_{name}', grad_norm)
 
-            # Check grad 
-            check_grad = 0
-            if check_grad:
-                for name, param in self.named_parameters():
-                    if param.grad is not None:
-                        if 'encoder' not in name:
-                            grad_norm = param.grad.data.norm(2).item()
-                            print(f'grad_norm_{name}', grad_norm)
-                        else:
-                            grad_norm = param.grad.data.norm(2).item()
-                            print(f'grad_norm_{name}', grad_norm)
-                            pass
-            return loss
-        
-        elif self.phase == 'finetune':
-            loss_align = 0
-            [x_3], [y_3] = batch
-            x_3 = x_3[0]
-            y_3 = y_3[0]
-            fea_3, fea_clisa_3 = self.forward(x_3, '3')
-            loss_clisa_3, acc1_3, acc5_3 = self.loss_clisa_fea(fea_clisa_3)
-            loss = loss_clisa_3
-            if(self.cfg.finetune.align):
-                cov_3 = self.cov_mat(fea_3)
-                cen_3 = self.get_ind_cen(cov_3)
-                dis = 0
-                dis = dis + self.frobenius_distance(cen_3, self.cov_0_mean)
-                dis = dis + self.frobenius_distance(cen_3, self.cov_1_mean)
-                dis = dis + self.frobenius_distance(cen_3, self.cov_2_mean)
-                loss_align = dis
-                loss_align = torch.log(dis + 1.0)
-                loss = loss +loss_align
-            self.log_dict({
-                    'loss_align/val': loss_align, 
-                    'loss_clisa/val': loss_clisa_3,   
-                    'acc1_3/val': acc1_3,
-                    'loss_total/val': loss, 
-                    },
-                    logger=self.is_logger,
-                    on_step=False, on_epoch=True, prog_bar=True)
-            return loss
+        return loss
     
     def predict_step(self, batch, batch_idx):
         x, y = batch
         # fea_1 = self.cnn_encoder(x_1)
         # fea_2 = self.cnn_encoder(x_2)
         # fea_3 = self.cnn_encoder(x_3)
-
-        fea = self.forward(x, dataset='3')
+        # 用来临时指定predict时用谁的mlp。-1即为未训练的随机mlp。（原本是作为微调基底）
+        fea = self.forward(x, 0)
         return fea
     

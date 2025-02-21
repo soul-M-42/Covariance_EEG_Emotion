@@ -45,15 +45,17 @@ def ext_fea(cfg: DictConfig) -> None:
         n_folds = cfg.data_val.n_subs
 
     n_per = round(cfg.data_val.n_subs / n_folds)
-    
+    val_subs_all = cfg.data_val.val_subs_all
+    n_folds = len(val_subs_all)
     for fold in range(0,n_folds):
         log.info(f"fold:{fold}")
-        if n_folds == 1:
-            val_subs = []
-        elif fold < n_folds - 1:
-            val_subs = np.arange(n_per * fold, n_per * (fold + 1))
-        else:
-            val_subs = np.arange(n_per * fold, cfg.data_val.n_subs)            
+        # if n_folds == 1:
+        #     val_subs = []
+        # elif fold < n_folds - 1:
+        #     val_subs = np.arange(n_per * fold, n_per * (fold + 1))
+        # else:
+        #     val_subs = np.arange(n_per * fold, cfg.data_val.n_subs)     
+        val_subs = val_subs_all[fold]
         train_subs = list(set(np.arange(cfg.data_val.n_subs)) - set(val_subs))
         # if len(val_subs) == 1:
         #     val_subs = list(val_subs) + train_subs
@@ -84,6 +86,7 @@ def ext_fea(cfg: DictConfig) -> None:
             checkpoint = glob.glob(checkpoint)[0]
             
             log.info('checkpoint load from: '+checkpoint)
+            cfg.data_cfg_list = [cfg.data_0, cfg.data_1, cfg.data_2, cfg.data_val]
             Extractor = MultiModel_PL.load_from_checkpoint(checkpoint_path=checkpoint, cfg=cfg)
             # Extractor.model.stratified = []
             Extractor.saveFea = True

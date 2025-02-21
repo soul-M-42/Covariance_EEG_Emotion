@@ -12,3 +12,32 @@ timeLen: 5
 timeStep: 2
 timeLen2: 1
 timeStep2: 1
+
+val_subs_all: [[5, 6, 4],
+ [10, 8, 14],
+ [1, 3, 11],
+ [2, 7, 0],
+ [4, 13, 1],
+ [14, 11, 12],
+ [10, 3, 9],
+ [7, 0, 6],
+ [14, 7, 11],
+ [6, 9, 12],
+ [2, 3, 8],
+ [13, 1, 10]]
+
+# import random
+# def generate_train_val_sets(n_sub, n_fold, k_sample):
+#     # 每次折叠的验证集大小
+#     fold_size = n_sub // n_fold
+#     subsets = list(range(n_sub))  # 所有子集的索引
+#     val_subs_all = []
+#     for _ in range(k_sample):
+#         # 随机选择n_fold个验证集的索引
+#         random.shuffle(subsets)  # 打乱顺序
+#         for i in range(n_fold):
+#             # 验证集为当前fold的元素，训练集为其他元素
+#             val_sub = subsets[i * fold_size : (i + 1) * fold_size]
+#             train_sub = [x for x in subsets if x not in val_sub]
+#             result.append(val_sub)
+#     return val_subs_all

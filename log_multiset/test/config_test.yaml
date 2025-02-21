@@ -17,21 +17,21 @@ loss:
   factor: 1.0
   to_riem: true
   proto_loss: false
-  align_loss: true
-  align_f: 0
+  align_loss: false
+  align_f: 0.1
   clisa_loss: true
   L1_loss: false
   MLP_loss: false
 log:
   is_logger: true
-  logpath: log_SEEDVII_test
+  logpath: log_multiset
   run: 4
-  proj_name: bsl
+  proj_name: test
   exp_name: ${log.proj_name}
   cp_dir: ./cp
 train:
-  n_fold: 4
-  n_pairs: 16
+  n_fold: 1
+  n_pairs: 1024
   gpus:
   - 0
   iftest: false
@@ -80,9 +80,9 @@ ext_fea:
   finetune: false
   normTrain: true
   batch_size: 256
-  mode: me
+  mode: de
   rn_decay: 0.99
-  use_pretrain: true
+  use_pretrain: false
 data_0:
   dataset_name: SEED
   data_dir: /mnt/dataset0/qingzhu/AutoICA_Processed_EEG/SEED/Processed_data_filter_0.50_47.00_AutoICA_Cus_Threshold
@@ -96,6 +96,43 @@ data_0:
   timeStep: 2
   timeLen2: 1
   timeStep2: 1
+  val_subs_all:
+  - - 5
+    - 6
+    - 4
+  - - 10
+    - 8
+    - 14
+  - - 1
+    - 3
+    - 11
+  - - 2
+    - 7
+    - 0
+  - - 4
+    - 13
+    - 1
+  - - 14
+    - 11
+    - 12
+  - - 10
+    - 3
+    - 9
+  - - 7
+    - 0
+    - 6
+  - - 14
+    - 7
+    - 11
+  - - 6
+    - 9
+    - 12
+  - - 2
+    - 3
+    - 8
+  - - 13
+    - 1
+    - 10
 data_1:
   dataset_name: SEEDIV
   data_dir: /mnt/dataset0/qingzhu/AutoICA_Processed_EEG/SEED-IV-new/Processed_MAT
@@ -110,19 +147,6 @@ data_1:
   timeLen2: 1
   timeStep2: 1
 data_2:
-  dataset_name: SEEDVII
-  data_dir: /mnt/dataset0/qingzhu/AutoICA_Processed_EEG/SEED-VII/Processed_MAT
-  fs: 125
-  n_channs: 62
-  n_session: 4
-  n_subs: 20
-  n_vids: 20
-  n_class: 7
-  timeLen: 5
-  timeStep: 2
-  timeLen2: 1
-  timeStep2: 1
-data_3:
   dataset_name: FACED
   data_dir: /mnt/dataset0/xinke/nsy/Faced_blink_only
   fs: 125
@@ -187,18 +211,55 @@ data_3:
   - O1
   - O2
 data_val:
-  dataset_name: SEEDV
-  data_dir: /mnt/dataset0/qingzhu/AutoICA_Processed_EEG/SEED_V/Processed_data_filter_0.50_47.00_AutoICA_Def_Threshold/data_3in1
+  dataset_name: SEED
+  data_dir: /mnt/dataset0/qingzhu/AutoICA_Processed_EEG/SEED/Processed_data_filter_0.50_47.00_AutoICA_Cus_Threshold
   fs: 125
   n_channs: 60
   n_session: 3
-  n_subs: 16
+  n_subs: 15
   n_vids: 15
-  n_class: 5
+  n_class: 3
   timeLen: 5
   timeStep: 2
   timeLen2: 1
   timeStep2: 1
+  val_subs_all:
+  - - 5
+    - 6
+    - 4
+  - - 10
+    - 8
+    - 14
+  - - 1
+    - 3
+    - 11
+  - - 2
+    - 7
+    - 0
+  - - 4
+    - 13
+    - 1
+  - - 14
+    - 11
+    - 12
+  - - 10
+    - 3
+    - 9
+  - - 7
+    - 0
+    - 6
+  - - 14
+    - 7
+    - 11
+  - - 6
+    - 9
+    - 12
+  - - 2
+    - 3
+    - 8
+  - - 13
+    - 1
+    - 10
 model:
   _target_: model.models.Conv_att_simple_new
   n_timeFilters: 16
