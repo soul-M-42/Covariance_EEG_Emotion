@@ -1,0 +1,43 @@
+dataset_name: 'SEEDV'
+data_dir: '/mnt/dataset0/qingzhu/AutoICA_Processed_EEG/SEED_V/Processed_data_filter_0.50_47.00_AutoICA_Def_Threshold/data_3in1'
+fs: 125
+n_channs: 60
+n_session: 3
+n_subs: 16
+n_vids: 15
+n_class: 5
+
+# changeable
+timeLen: 5
+timeStep: 2
+timeLen2: 1
+timeStep2: 1
+
+val_subs_all: [[0, 5, 11, 15],
+ [12, 7, 14, 13],
+ [4, 9, 2, 3],
+ [1, 6, 10, 8],
+ [6, 0, 8, 9],
+ [13, 11, 12, 2],
+ [10, 15, 1, 4],
+ [14, 3, 5, 7],
+ [5, 2, 14, 11],
+ [6, 1, 8, 9],
+ [15, 0, 3, 7],
+ [4, 10, 13, 12]]
+
+# import random
+# def generate_train_val_sets(n_sub, n_fold, k_sample):
+#     # 每次折叠的验证集大小
+#     fold_size = n_sub // n_fold
+#     subsets = list(range(n_sub))  # 所有子集的索引
+#     val_subs_all = []
+#     for _ in range(k_sample):
+#         # 随机选择n_fold个验证集的索引
+#         random.shuffle(subsets)  # 打乱顺序
+#         for i in range(n_fold):
+#             # 验证集为当前fold的元素，训练集为其他元素
+#             val_sub = subsets[i * fold_size : (i + 1) * fold_size]
+#             train_sub = [x for x in subsets if x not in val_sub]
+#             result.append(val_sub)
+#     return val_subs_all

@@ -1,0 +1,79 @@
+
+defaults:
+  - _self_
+  - data@data_0: SEED
+  - data@data_1: FACED_blink_only
+  - data@data_2: None
+  - data@data_3: None
+  - data@data_4: None
+  - data@data_val: SEEDV
+
+log:
+  run_name: CNN_bsl_40
+  mlp_cp_dir: 'mlp_cp'
+
+data_cfg_list:
+
+train:
+  seed: 19260817
+  n_fold: 1
+  n_pairs: 1024
+  gpus: [0]
+  iftest: False
+  reverse: True
+  lr: 5e-4
+  wd: 0.0001
+  loss_temp: 0.07
+  max_epochs: 40
+  min_epochs: 1
+  num_workers: 127
+  save_interval: 5
+  loss:
+    clisa_loss: True
+    temp: 0.07
+
+val:
+  extractor:
+    use_pretrain: True
+    ckpt_epoch: 30
+    n_fold: 4
+    reverse: True
+    normTrain: True
+    batch_size: 256
+    fea_mode: 'de'
+    rn_decay: 0.990
+  mlp:
+    seed: 19260817
+    lr: 0.0005  #0.0005
+    wd: 0.0022   #0.001-0.005
+    hidden_dim: 128
+    out_dim: ${data_val.n_class}
+    batch_size: 256
+    max_epochs: 8
+    min_epochs: 2
+    gpus: ${train.gpus}
+    num_workers: ${train.num_workers}
+  
+model:
+  encoder: 'cnn_att'
+  cnn:
+    n_timeFilters: 16
+    timeFilterLen: 30
+    n_msFilters: 4
+    msFilter_timeLen: 3
+    n_channs: 64
+    dilation_array: [1,3,6,12]
+    seg_att: 15
+    avgPoolLen: 15
+    timeSmootherLen: 3
+    multiFact: 2
+    stratified: ['initial', 'middle1', 'middle2']
+    activ: 'softmax'
+    temp: 1.0
+    saveFea: False
+    has_att: True
+    extract_mode: 'de'
+    global_att: False
+  mlla:
+    n_channel_uni: 60
+

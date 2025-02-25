@@ -15,3 +15,4 @@ lightning_logs/
 clisa_run/
 wandb/
 cp/
+outputs/

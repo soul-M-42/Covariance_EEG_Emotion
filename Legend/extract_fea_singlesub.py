@@ -6,7 +6,7 @@ from utils.reorder_vids import video_order_load, reorder_vids_sepVideo, reorder_
 import hydra
 from omegaconf import DictConfig
 from model import ExtractorModel
-from multi_model import MultiModel_PL
+from src.model.MultiModel_PL import MultiModel_PL
 from data.dataset import SEEDV_Dataset 
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl

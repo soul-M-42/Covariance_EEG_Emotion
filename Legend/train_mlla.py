@@ -8,7 +8,7 @@ from pytorch_lightning.loggers import WandbLogger
 import wandb
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from data.pl_datamodule import EEGDataModule
-from multi_dataloader import MultiDataModule
+from src.data.multi_dataloader import MultiDataModule
 import os
 import logging
 

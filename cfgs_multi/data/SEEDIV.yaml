@@ -1,0 +1,14 @@
+dataset_name: 'SEEDIV'
+data_dir: '/mnt/dataset0/qingzhu/AutoICA_Processed_EEG/SEED-IV-new/Processed_MAT'
+fs: 125
+n_channs: 62
+n_session: 3
+n_subs: 15
+n_vids: 24
+n_class: 4
+
+# changeable
+timeLen: 5
+timeStep: 2
+timeLen2: 1
+timeStep2: 1
