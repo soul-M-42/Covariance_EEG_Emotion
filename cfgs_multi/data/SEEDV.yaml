@@ -10,8 +10,8 @@ n_class: 5
 # changeable
 timeLen: 5
 timeStep: 2
-timeLen2: 1
-timeStep2: 1
+timeLen2: 5
+timeStep2: 2
 
 val_subs_all: [[0, 5, 11, 15],
  [12, 7, 14, 13],

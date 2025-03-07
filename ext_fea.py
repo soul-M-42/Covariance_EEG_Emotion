@@ -48,6 +48,23 @@ def ext_fea(cfg: DictConfig) -> None:
     np.save(save_dir+'/onesub_label.npy',onesub_label)
     val_subs_all = cfg.data_val.val_subs_all
     n_folds = len(val_subs_all)
+    if cfg.val.extractor.use_pretrain:
+        print('Use pretrain model:')
+        cp_path = os.path.join('log', cfg.log.run_name, 'ckpt', f'epoch={(cfg.val.extractor.ckpt_epoch-1):02d}.ckpt')
+        print(f'checkpoint load from: {cp_path}')
+        cfg.data_cfg_list = [cfg.data_0, cfg.data_1, cfg.data_2, cfg.data_3, cfg.data_4, cfg.data_val]
+        cfg.data_cfg_list = [cfg_i for cfg_i in cfg.data_cfg_list if cfg_i.dataset_name != 'None']
+        Extractor = MultiModel_PL.load_from_checkpoint(checkpoint_path=cp_path, cfg=cfg)
+        if(cfg.model.encoder == 'cnn_att'):
+            Extractor.cnn_encoder.stratified = []
+            Extractor.save_fea = True
+        if(cfg.model.encoder == 'transformer'):
+            Extractor.cnn_encoder.stratified = []
+            Extractor.save_fea = True
+        if(cfg.model.encoder == 'TST_single'):
+            Extractor.cnn_encoder.stratified = []
+            Extractor.save_fea = True
+        trainer = pl.Trainer(accelerator='gpu', devices=cfg.train.gpus)
     for fold in tqdm(range(0,n_folds), desc='Extracting feature......'):
         val_subs = val_subs_all[fold]
         train_subs = list(set(range(cfg.data_val.n_subs)) - set(val_subs))
@@ -65,16 +82,6 @@ def ext_fea(cfg: DictConfig) -> None:
             foldset = SEEDV_Dataset(data_fold, label_fold)
             del data_fold, label_fold
             fold_loader = DataLoader(foldset, batch_size=cfg.val.extractor.batch_size, shuffle=False, num_workers=cfg.train.num_workers)
-            cp_path = os.path.join('log', cfg.log.run_name, 'ckpt', f'epoch={(cfg.val.extractor.ckpt_epoch-1):02d}.ckpt')
-            print(f'checkpoint load from: {cp_path}')
-            cfg.data_cfg_list = [cfg.data_0, cfg.data_1, cfg.data_2, cfg.data_3, cfg.data_4, cfg.data_val]
-            cfg.data_cfg_list = [cfg_i for cfg_i in cfg.data_cfg_list if cfg_i.dataset_name != 'None']
-            Extractor = MultiModel_PL.load_from_checkpoint(checkpoint_path=cp_path, cfg=cfg)
-            if(cfg.model.encoder == 'cnn_att'):
-                Extractor.cnn_encoder.stratified = []
-                Extractor.save_fea = True
-            
-            trainer = pl.Trainer(accelerator='gpu', devices=cfg.train.gpus)
             pred = trainer.predict(Extractor, fold_loader)
             pred = torch.cat(pred, dim=0).cpu().numpy()
             # Pred = [n_fea, dim, 1, T]

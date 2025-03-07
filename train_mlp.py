@@ -25,7 +25,7 @@ def train_mlp(cfg: DictConfig) -> None:
     n_folds = len(val_subs_all)
     best_val_acc_list = []
     for fold in range(0,n_folds):
-        cp_dir = os.path.join(cfg.log.run_name, cfg.log.mlp_cp_dir)
+        cp_dir = os.path.join(cfg.log.mlp_cp_dir, cfg.log.run_name)
         os.makedirs(cp_dir, exist_ok=True)
         checkpoint_callback = ModelCheckpoint(monitor="mlp/val/acc",
                                               verbose=True, mode="max", 

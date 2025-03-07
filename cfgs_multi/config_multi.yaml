@@ -9,7 +9,7 @@ defaults:
   - data@data_val: SEEDV
 
 log:
-  run_name: CNN_bsl_40
+  run_name: cnn_2_layer_channelMlp
   mlp_cp_dir: 'mlp_cp'
 
 data_cfg_list:
@@ -35,12 +35,12 @@ train:
 val:
   extractor:
     use_pretrain: True
-    ckpt_epoch: 30
+    ckpt_epoch: 20
     n_fold: 4
     reverse: True
     normTrain: True
     batch_size: 256
-    fea_mode: 'de'
+    fea_mode: 'me'
     rn_decay: 0.990
   mlp:
     seed: 19260817
@@ -55,7 +55,7 @@ val:
     num_workers: ${train.num_workers}
   
 model:
-  encoder: 'cnn_att'
+  encoder: 'TST_single'
   cnn:
     n_timeFilters: 16
     timeFilterLen: 30
@@ -66,14 +66,23 @@ model:
     seg_att: 15
     avgPoolLen: 15
     timeSmootherLen: 3
-    multiFact: 2
+    multiFact: 1
     stratified: ['initial', 'middle1', 'middle2']
     activ: 'softmax'
     temp: 1.0
     saveFea: False
     has_att: True
-    extract_mode: 'de'
+    extract_mode: '${val.extractor.fea_mode}'
     global_att: False
-  mlla:
-    n_channel_uni: 60
+  transformer:
+    patch_len: 32
+    patch_stride: 16
+    n_channs: 64
+  TST_single:
+    patch_len: 32
+    patch_stride: 16
+    n_channs: 1
+
+    尝试一下用更小的TST, 后接MLP接msconv
+
 

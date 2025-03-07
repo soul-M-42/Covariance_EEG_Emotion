@@ -13,6 +13,6 @@ class Channel_mlp_CNN(nn.Module):
         [Batch, _, n_chann, T] = x.shape
         x = x.permute(0, 1, 3, 2)
         # Shape: [Batch, 1, T, n_chann]
-        x = F.relu(self.fc(x))
+        x = self.fc(x)
         x = x.permute(0, 1, 3, 2)
         return x

@@ -10,8 +10,10 @@ import matplotlib.pyplot as plt
 import itertools
 import time
 import random
-from src.model.CNN_Attention import Conv_att_simple_new
+from src.model.CNN_Attention import Conv_att_simple_new, Conv_att_simple_mlp
 from src.model.Channel_MLP import Channel_mlp_CNN
+from src.model.PatchTST import PatchTST_backbone
+from src.model.PatchTSTsingle import PatchTST_single_backbone
 from src.loss.loss import SimCLRLoss
 
 class MultiModel_PL(pl.LightningModule):
@@ -20,6 +22,32 @@ class MultiModel_PL(pl.LightningModule):
         self.cfg = cfg
         self.save_fea = False
         if(cfg.model.encoder == 'cnn_att'):
+            self.cnn_encoder = Conv_att_simple_mlp(cfg.model.cnn.n_timeFilters,
+                                               cfg.model.cnn.timeFilterLen,
+                                               cfg.model.cnn.n_msFilters,
+                                               cfg.model.cnn.msFilter_timeLen,
+                                               cfg.model.cnn.n_channs,
+                                               cfg.model.cnn.dilation_array,
+                                               cfg.model.cnn.seg_att, 
+                                               cfg.model.cnn.avgPoolLen,
+                                               cfg.model.cnn.timeSmootherLen,
+                                               cfg.model.cnn.multiFact,
+                                               cfg.model.cnn.stratified, 
+                                               cfg.model.cnn.activ,
+                                               cfg.model.cnn.temp,
+                                               cfg.model.cnn.saveFea,
+                                               cfg.model.cnn.has_att,
+                                               cfg.model.cnn.extract_mode,
+                                               cfg.model.cnn.global_att,
+                                               c_mlps = [Channel_mlp_CNN(cfg_i.n_channs, cfg.model.cnn.n_channs) for cfg_i in cfg.data_cfg_list])
+            
+        if(cfg.model.encoder == 'transformer'):
+            self.c_mlps = [Channel_mlp_CNN(cfg_i.n_channs, cfg.model.transformer.n_channs) for cfg_i in cfg.data_cfg_list]
+            self.patchTST = PatchTST_backbone(c_in=cfg.model.transformer.n_channs,
+                                              context_window=cfg.data_0.timeLen * cfg.data_0.fs,
+                                              target_window=cfg.data_0.timeLen * cfg.data_0.fs,
+                                              patch_len=cfg.model.transformer.patch_len,
+                                              stride=cfg.model.transformer.patch_stride)
             self.cnn_encoder = Conv_att_simple_new(cfg.model.cnn.n_timeFilters,
                                                cfg.model.cnn.timeFilterLen,
                                                cfg.model.cnn.n_msFilters,
@@ -37,9 +65,31 @@ class MultiModel_PL(pl.LightningModule):
                                                cfg.model.cnn.has_att,
                                                cfg.model.cnn.extract_mode,
                                                cfg.model.cnn.global_att)
+            
+        if(cfg.model.encoder == 'TST_single'):
             self.c_mlps = [Channel_mlp_CNN(cfg_i.n_channs, cfg.model.cnn.n_channs) for cfg_i in cfg.data_cfg_list]
-        if(cfg.model.encoder == 'MLLA'):
-            pass
+            self.patchTST = PatchTST_single_backbone(c_in=cfg.model.TST_single.n_channs,
+                                              context_window=cfg.data_0.timeLen * cfg.data_0.fs,
+                                              target_window=cfg.data_0.timeLen * cfg.data_0.fs,
+                                              patch_len=cfg.model.TST_single.patch_len,
+                                              stride=cfg.model.TST_single.patch_stride)
+            self.cnn_encoder = Conv_att_simple_new(cfg.model.cnn.n_timeFilters,
+                                               cfg.model.cnn.timeFilterLen,
+                                               cfg.model.cnn.n_msFilters,
+                                               cfg.model.cnn.msFilter_timeLen,
+                                               cfg.model.cnn.n_channs,
+                                               cfg.model.cnn.dilation_array,
+                                               cfg.model.cnn.seg_att, 
+                                               cfg.model.cnn.avgPoolLen,
+                                               cfg.model.cnn.timeSmootherLen,
+                                               cfg.model.cnn.multiFact,
+                                               cfg.model.cnn.stratified, 
+                                               cfg.model.cnn.activ,
+                                               cfg.model.cnn.temp,
+                                               cfg.model.cnn.saveFea,
+                                               cfg.model.cnn.has_att,
+                                               cfg.model.cnn.extract_mode,
+                                               cfg.model.cnn.global_att)
         self.clisa_loss = SimCLRLoss(cfg.train.loss.temp)
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.cfg.train.lr, weight_decay=self.cfg.train.wd)
@@ -47,6 +97,24 @@ class MultiModel_PL(pl.LightningModule):
     
     def forward(self, x, dataset=0):
         if(self.cfg.model.encoder == 'cnn_att'):
+            # x = self.c_mlps[dataset](x)
+            if self.save_fea:
+                self.cnn_encoder.saveFea = True
+            x = self.cnn_encoder(x, dataset)
+            return x
+        if(self.cfg.model.encoder == 'transformer'):
+            x = self.c_mlps[dataset](x)
+            x = x.squeeze(1)
+            x = self.patchTST(x)
+            x = x.unsqueeze(1)
+            if self.save_fea:
+                self.cnn_encoder.saveFea = True
+            x = self.cnn_encoder(x)
+            return x
+        if(self.cfg.model.encoder == 'TST_single'):
+            x = x.squeeze(1)
+            x = self.patchTST(x)
+            x = x.unsqueeze(1)
             x = self.c_mlps[dataset](x)
             if self.save_fea:
                 self.cnn_encoder.saveFea = True
