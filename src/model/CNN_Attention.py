@@ -66,7 +66,8 @@ class Conv_att_simple_new(nn.Module):
         # input.shape should be [B, dim, n_channel, T]
         if 'initial' in self.stratified:
             input = stratified_layerNorm(input, int(input.shape[0]/2))
-        out = self.timeConv(input)
+        # out = self.timeConv(input)
+        out = input
         p = self.dilation_array * (self.msFilter_timeLen - 1)
         out1 = self.msConv1(F.pad(out, (int(p[0]//2), p[0]-int(p[0]//2)), "constant", 0))
         out2 = self.msConv2(F.pad(out, (int(p[1]//2), p[1]-int(p[1]//2)), "constant", 0))
@@ -96,7 +97,9 @@ class Conv_att_simple_new(nn.Module):
         else:         # projecter
             if self.extract_mode == 'de':
                 out = F.relu(out)
+            print(out.shape)
             out = self.avgpool(out)    # B*(t_dim*n_msFilters*4)*1*t_pool
+            print(out.shape)
             if 'middle1' in self.stratified:
                 out = stratified_layerNorm(out, int(out.shape[0]/2))
             out = F.relu(self.timeConv1(out))
@@ -161,6 +164,7 @@ class Conv_att_simple_mlp(nn.Module):
             input = stratified_layerNorm(input, int(input.shape[0]/2))
         out = self.timeConv(input)
         out = self.c_mlps[dataset](out)
+        out = stratified_layerNorm(out, int(out.shape[0]/2))
         p = self.dilation_array * (self.msFilter_timeLen - 1)
         out1 = self.msConv1(F.pad(out, (int(p[0]//2), p[0]-int(p[0]//2)), "constant", 0))
         out2 = self.msConv2(F.pad(out, (int(p[1]//2), p[1]-int(p[1]//2)), "constant", 0))

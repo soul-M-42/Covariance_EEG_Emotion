@@ -13,6 +13,11 @@ timeStep: 2
 timeLen2: 5
 timeStep2: 2
 
+# val_subs_all: [[0, 1, 2, 3],
+#  [4, 5, 6, 7],
+#  [8, 9, 10, 11],
+#  [12, 13, 14, 15]]
+
 val_subs_all: [[0, 5, 11, 15],
  [12, 7, 14, 13],
  [4, 9, 2, 3],
@@ -25,6 +30,7 @@ val_subs_all: [[0, 5, 11, 15],
  [6, 1, 8, 9],
  [15, 0, 3, 7],
  [4, 10, 13, 12]]
+
 
 # import random
 # def generate_train_val_sets(n_sub, n_fold, k_sample):

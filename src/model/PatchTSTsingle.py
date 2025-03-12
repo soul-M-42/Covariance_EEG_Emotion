@@ -7,12 +7,12 @@ from typing import Callable, Optional
 from src.model.PatchTST_layers import *
 
 class PatchTST_single_backbone(nn.Module):
-    def __init__(self, c_in:int, context_window:int, target_window:int, patch_len:int, stride:int, max_seq_len:Optional[int]=1024, 
+    def __init__(self, c_in:int, context_window:int, patch_len:int, stride:int, max_seq_len:Optional[int]=1024, 
                  n_layers:int=3, d_model=128, n_heads=16, d_k:Optional[int]=None, d_v:Optional[int]=None,
                  d_ff:int=256, norm:str='BatchNorm', attn_dropout:float=0., dropout:float=0., act:str="gelu", key_padding_mask:bool='auto',
                  padding_var:Optional[int]=None, attn_mask:Optional[Tensor]=None, res_attention:bool=True, pre_norm:bool=False, store_attn:bool=False,
                  pe:str='zeros', learn_pe:bool=True, fc_dropout:float=0., head_dropout = 0, padding_patch = None,
-                 pretrain_head:bool=False, head_type = 'flatten', individual = False, revin = True, affine = False, subtract_last = False,
+                 pretrain_head:bool=False, head_type = 'flatten', individual = False, revin = False, affine = False, subtract_last = False,
                  verbose:bool=False, **kwargs):
         
         super().__init__()
@@ -43,6 +43,7 @@ class PatchTST_single_backbone(nn.Module):
         self.pretrain_head = pretrain_head
         self.head_type = head_type
         self.individual = individual
+        target_window = patch_num
 
         if self.pretrain_head: 
             self.head = self.create_pretrain_head(self.head_nf, c_in, fc_dropout) # custom head passed as a partial func with all its kwargs
@@ -65,7 +66,7 @@ class PatchTST_single_backbone(nn.Module):
         
         # model
         z = self.backbone(z)                                                                # z: [bs x nvars x d_model x patch_num]
-        z = self.head(z)                                                                    # z: [bs x nvars x target_window] 
+        # z = self.head(z)                                                                    # z: [bs x nvars x target_window] 
         
         # denorm
         if self.revin: 

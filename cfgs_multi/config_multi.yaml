@@ -9,13 +9,13 @@ defaults:
   - data@data_val: SEEDV
 
 log:
-  run_name: cnn_2_layer_channelMlp
+  run_name: cnnNormAfterMLP_relu
   mlp_cp_dir: 'mlp_cp'
 
 data_cfg_list:
 
 train:
-  seed: 19260817
+  seed: 19260832
   n_fold: 1
   n_pairs: 1024
   gpus: [0]
@@ -55,7 +55,7 @@ val:
     num_workers: ${train.num_workers}
   
 model:
-  encoder: 'TST_single'
+  encoder: 'cnn_att'
   cnn:
     n_timeFilters: 16
     timeFilterLen: 30
@@ -80,9 +80,5 @@ model:
     n_channs: 64
   TST_single:
     patch_len: 32
-    patch_stride: 16
+    patch_stride: 4
     n_channs: 1
-
-    尝试一下用更小的TST, 后接MLP接msconv
-
-

@@ -33,6 +33,9 @@ def cal_fea(data,mode):
 
 @hydra.main(config_path="cfgs_multi", config_name="config_multi", version_base="1.3")
 def ext_fea(cfg: DictConfig) -> None:
+    pl.seed_everything(cfg.train.seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
     load_dir = os.path.join(cfg.data_val.data_dir,'processed_data')
     print('data loading...')
     data, onesub_label, n_samples_onesub, n_samples_sessions = load_finetune_EEG_data(load_dir, cfg.data_val)
@@ -55,15 +58,8 @@ def ext_fea(cfg: DictConfig) -> None:
         cfg.data_cfg_list = [cfg.data_0, cfg.data_1, cfg.data_2, cfg.data_3, cfg.data_4, cfg.data_val]
         cfg.data_cfg_list = [cfg_i for cfg_i in cfg.data_cfg_list if cfg_i.dataset_name != 'None']
         Extractor = MultiModel_PL.load_from_checkpoint(checkpoint_path=cp_path, cfg=cfg)
-        if(cfg.model.encoder == 'cnn_att'):
-            Extractor.cnn_encoder.stratified = []
-            Extractor.save_fea = True
-        if(cfg.model.encoder == 'transformer'):
-            Extractor.cnn_encoder.stratified = []
-            Extractor.save_fea = True
-        if(cfg.model.encoder == 'TST_single'):
-            Extractor.cnn_encoder.stratified = []
-            Extractor.save_fea = True
+        Extractor.save_fea = True
+        Extractor.cnn_encoder.set_saveFea(True)
         trainer = pl.Trainer(accelerator='gpu', devices=cfg.train.gpus)
     for fold in tqdm(range(0,n_folds), desc='Extracting feature......'):
         val_subs = val_subs_all[fold]

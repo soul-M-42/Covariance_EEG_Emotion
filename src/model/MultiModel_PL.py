@@ -70,9 +70,9 @@ class MultiModel_PL(pl.LightningModule):
             self.c_mlps = [Channel_mlp_CNN(cfg_i.n_channs, cfg.model.cnn.n_channs) for cfg_i in cfg.data_cfg_list]
             self.patchTST = PatchTST_single_backbone(c_in=cfg.model.TST_single.n_channs,
                                               context_window=cfg.data_0.timeLen * cfg.data_0.fs,
-                                              target_window=cfg.data_0.timeLen * cfg.data_0.fs,
                                               patch_len=cfg.model.TST_single.patch_len,
-                                              stride=cfg.model.TST_single.patch_stride)
+                                              stride=cfg.model.TST_single.patch_stride,
+                                              d_model=cfg.model.cnn.n_timeFilters)
             self.cnn_encoder = Conv_att_simple_new(cfg.model.cnn.n_timeFilters,
                                                cfg.model.cnn.timeFilterLen,
                                                cfg.model.cnn.n_msFilters,
@@ -112,10 +112,13 @@ class MultiModel_PL(pl.LightningModule):
             x = self.cnn_encoder(x)
             return x
         if(self.cfg.model.encoder == 'TST_single'):
+            print(x.shape)
             x = x.squeeze(1)
             x = self.patchTST(x)
-            x = x.unsqueeze(1)
+            x = torch.permute(x, (0, 2, 1, 3))
+            print(x.shape)
             x = self.c_mlps[dataset](x)
+            print(x.shape)
             if self.save_fea:
                 self.cnn_encoder.saveFea = True
             x = self.cnn_encoder(x)
