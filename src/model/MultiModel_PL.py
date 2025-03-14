@@ -21,7 +21,7 @@ class MultiModel_PL(pl.LightningModule):
         super().__init__()
         self.cfg = cfg
         self.save_fea = False
-        if(cfg.model.encoder == 'cnn_att'):
+        if(cfg.model.encoder == 'cnn'):
             self.cnn_encoder = Conv_att_simple_mlp(cfg.model.cnn.n_timeFilters,
                                                cfg.model.cnn.timeFilterLen,
                                                cfg.model.cnn.n_msFilters,
@@ -40,85 +40,48 @@ class MultiModel_PL(pl.LightningModule):
                                                cfg.model.cnn.extract_mode,
                                                cfg.model.cnn.global_att,
                                                c_mlps = [Channel_mlp_CNN(cfg_i.n_channs, cfg.model.cnn.n_channs) for cfg_i in cfg.data_cfg_list])
-            
-        if(cfg.model.encoder == 'transformer'):
-            self.c_mlps = [Channel_mlp_CNN(cfg_i.n_channs, cfg.model.transformer.n_channs) for cfg_i in cfg.data_cfg_list]
-            self.patchTST = PatchTST_backbone(c_in=cfg.model.transformer.n_channs,
-                                              context_window=cfg.data_0.timeLen * cfg.data_0.fs,
-                                              target_window=cfg.data_0.timeLen * cfg.data_0.fs,
-                                              patch_len=cfg.model.transformer.patch_len,
-                                              stride=cfg.model.transformer.patch_stride)
-            self.cnn_encoder = Conv_att_simple_new(cfg.model.cnn.n_timeFilters,
-                                               cfg.model.cnn.timeFilterLen,
-                                               cfg.model.cnn.n_msFilters,
-                                               cfg.model.cnn.msFilter_timeLen,
-                                               cfg.model.cnn.n_channs,
-                                               cfg.model.cnn.dilation_array,
-                                               cfg.model.cnn.seg_att, 
-                                               cfg.model.cnn.avgPoolLen,
-                                               cfg.model.cnn.timeSmootherLen,
-                                               cfg.model.cnn.multiFact,
-                                               cfg.model.cnn.stratified, 
-                                               cfg.model.cnn.activ,
-                                               cfg.model.cnn.temp,
-                                               cfg.model.cnn.saveFea,
-                                               cfg.model.cnn.has_att,
-                                               cfg.model.cnn.extract_mode,
-                                               cfg.model.cnn.global_att)
-            
+
         if(cfg.model.encoder == 'TST_single'):
-            self.c_mlps = [Channel_mlp_CNN(cfg_i.n_channs, cfg.model.cnn.n_channs) for cfg_i in cfg.data_cfg_list]
-            self.patchTST = PatchTST_single_backbone(c_in=cfg.model.TST_single.n_channs,
+            self.c_mlps = [Channel_mlp_CNN(cfg_i.n_channs, cfg.model.TST_single.cnn.n_channs) for cfg_i in cfg.data_cfg_list]
+            self.patchTST = PatchTST_single_backbone(c_in=1,
                                               context_window=cfg.data_0.timeLen * cfg.data_0.fs,
                                               patch_len=cfg.model.TST_single.patch_len,
                                               stride=cfg.model.TST_single.patch_stride,
-                                              d_model=cfg.model.cnn.n_timeFilters)
-            self.cnn_encoder = Conv_att_simple_new(cfg.model.cnn.n_timeFilters,
-                                               cfg.model.cnn.timeFilterLen,
-                                               cfg.model.cnn.n_msFilters,
-                                               cfg.model.cnn.msFilter_timeLen,
-                                               cfg.model.cnn.n_channs,
-                                               cfg.model.cnn.dilation_array,
-                                               cfg.model.cnn.seg_att, 
-                                               cfg.model.cnn.avgPoolLen,
-                                               cfg.model.cnn.timeSmootherLen,
-                                               cfg.model.cnn.multiFact,
-                                               cfg.model.cnn.stratified, 
-                                               cfg.model.cnn.activ,
-                                               cfg.model.cnn.temp,
-                                               cfg.model.cnn.saveFea,
-                                               cfg.model.cnn.has_att,
-                                               cfg.model.cnn.extract_mode,
-                                               cfg.model.cnn.global_att)
+                                              d_model=cfg.model.TST_single.cnn.n_timeFilters,
+                                              n_heads=cfg.model.TST_single.n_heads)
+            self.cnn_encoder = Conv_att_simple_new(cfg.model.TST_single.cnn.n_timeFilters,
+                                               cfg.model.TST_single.cnn.timeFilterLen,
+                                               cfg.model.TST_single.cnn.n_msFilters,
+                                               cfg.model.TST_single.cnn.msFilter_timeLen,
+                                               cfg.model.TST_single.cnn.n_channs,
+                                               cfg.model.TST_single.cnn.dilation_array,
+                                               cfg.model.TST_single.cnn.seg_att, 
+                                               cfg.model.TST_single.cnn.avgPoolLen,
+                                               cfg.model.TST_single.cnn.timeSmootherLen,
+                                               cfg.model.TST_single.cnn.multiFact,
+                                               cfg.model.TST_single.cnn.stratified, 
+                                               cfg.model.TST_single.cnn.activ,
+                                               cfg.model.TST_single.cnn.temp,
+                                               cfg.model.TST_single.cnn.saveFea,
+                                               cfg.model.TST_single.cnn.has_att,
+                                               cfg.model.TST_single.cnn.extract_mode,
+                                               cfg.model.TST_single.cnn.global_att)
         self.clisa_loss = SimCLRLoss(cfg.train.loss.temp)
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.cfg.train.lr, weight_decay=self.cfg.train.wd)
         return {'optimizer': optimizer}
     
     def forward(self, x, dataset=0):
-        if(self.cfg.model.encoder == 'cnn_att'):
-            # x = self.c_mlps[dataset](x)
+        if(self.cfg.model.encoder == 'cnn'):
             if self.save_fea:
                 self.cnn_encoder.saveFea = True
             x = self.cnn_encoder(x, dataset)
             return x
-        if(self.cfg.model.encoder == 'transformer'):
-            x = self.c_mlps[dataset](x)
-            x = x.squeeze(1)
-            x = self.patchTST(x)
-            x = x.unsqueeze(1)
-            if self.save_fea:
-                self.cnn_encoder.saveFea = True
-            x = self.cnn_encoder(x)
-            return x
         if(self.cfg.model.encoder == 'TST_single'):
-            print(x.shape)
             x = x.squeeze(1)
             x = self.patchTST(x)
             x = torch.permute(x, (0, 2, 1, 3))
-            print(x.shape)
             x = self.c_mlps[dataset](x)
-            print(x.shape)
             if self.save_fea:
                 self.cnn_encoder.saveFea = True
             x = self.cnn_encoder(x)
@@ -156,4 +119,3 @@ class MultiModel_PL(pl.LightningModule):
         # 用来临时指定predict时用谁的mlp。-1即为未训练的随机mlp。（原本是作为微调基底）
         fea = self.forward(x, 0)
         return fea
-    

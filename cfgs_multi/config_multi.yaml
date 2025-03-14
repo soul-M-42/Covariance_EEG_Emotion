@@ -9,7 +9,7 @@ defaults:
   - data@data_val: SEEDV
 
 log:
-  run_name: cnnNormAfterMLP_relu
+  run_name: 'TST_patchlen${model.TST_single.patch_len}patchstride${model.TST_single.patch_stride}'
   mlp_cp_dir: 'mlp_cp'
 
 data_cfg_list:
@@ -20,7 +20,6 @@ train:
   n_pairs: 1024
   gpus: [0]
   iftest: False
-  reverse: True
   lr: 5e-4
   wd: 0.0001
   loss_temp: 0.07
@@ -35,11 +34,11 @@ train:
 val:
   extractor:
     use_pretrain: True
-    ckpt_epoch: 20
+    ckpt_epoch: 10
     n_fold: 4
-    reverse: True
+    reverse: False
     normTrain: True
-    batch_size: 256
+    batch_size: 64
     fea_mode: 'me'
     rn_decay: 0.990
   mlp:
@@ -55,7 +54,7 @@ val:
     num_workers: ${train.num_workers}
   
 model:
-  encoder: 'cnn_att'
+  encoder: 'TST_single'
   cnn:
     n_timeFilters: 16
     timeFilterLen: 30
@@ -74,11 +73,26 @@ model:
     has_att: True
     extract_mode: '${val.extractor.fea_mode}'
     global_att: False
-  transformer:
-    patch_len: 32
-    patch_stride: 16
-    n_channs: 64
   TST_single:
-    patch_len: 32
-    patch_stride: 4
+    n_heads: 1
+    patch_len: 16
+    patch_stride: 2
     n_channs: 1
+    cnn:
+      n_timeFilters: 16
+      timeFilterLen: 30
+      n_msFilters: 4
+      msFilter_timeLen: 3
+      n_channs: 64
+      dilation_array: [1,3,6,12]
+      seg_att: 15
+      avgPoolLen: 15
+      timeSmootherLen: 3
+      multiFact: 1
+      stratified: ['initial', 'middle1', 'middle2']
+      activ: 'softmax'
+      temp: 1.0
+      saveFea: False
+      has_att: True
+      extract_mode: '${val.extractor.fea_mode}'
+      global_att: False

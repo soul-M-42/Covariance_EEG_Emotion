@@ -35,7 +35,7 @@ def train_mlp(cfg: DictConfig) -> None:
         print(f"fold:{fold}")
         val_subs = val_subs_all[fold]
         train_subs = list(set(np.arange(cfg.data_val.n_subs)) - set(val_subs))
-        if cfg.train.reverse:
+        if cfg.val.extractor.reverse:
             train_subs, val_subs = val_subs, train_subs
         print(f'finetune_subs:{train_subs}')
         print(f'val_subs:{val_subs}')

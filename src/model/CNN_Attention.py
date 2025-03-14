@@ -97,9 +97,7 @@ class Conv_att_simple_new(nn.Module):
         else:         # projecter
             if self.extract_mode == 'de':
                 out = F.relu(out)
-            print(out.shape)
             out = self.avgpool(out)    # B*(t_dim*n_msFilters*4)*1*t_pool
-            print(out.shape)
             if 'middle1' in self.stratified:
                 out = stratified_layerNorm(out, int(out.shape[0]/2))
             out = F.relu(self.timeConv1(out))
