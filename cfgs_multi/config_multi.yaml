@@ -9,7 +9,7 @@ defaults:
   - data@data_val: SEEDV
 
 log:
-  run_name: 'TST_patchlen${model.TST_single.patch_len}patchstride${model.TST_single.patch_stride}'
+  run_name: 'PatchTST_3set'
   mlp_cp_dir: 'mlp_cp'
 
 data_cfg_list:
@@ -34,7 +34,7 @@ train:
 val:
   extractor:
     use_pretrain: True
-    ckpt_epoch: 10
+    ckpt_epoch: 20
     n_fold: 4
     reverse: False
     normTrain: True
@@ -54,7 +54,7 @@ val:
     num_workers: ${train.num_workers}
   
 model:
-  encoder: 'TST_single'
+  encoder: 'MLLA'
   cnn:
     n_timeFilters: 16
     timeFilterLen: 30
@@ -75,11 +75,39 @@ model:
     global_att: False
   TST_single:
     n_heads: 1
-    patch_len: 16
-    patch_stride: 2
+    patch_len: 32
+    patch_stride: 4
     n_channs: 1
     cnn:
       n_timeFilters: 16
+      timeFilterLen: 30
+      n_msFilters: 4
+      msFilter_timeLen: 3
+      n_channs: 64
+      dilation_array: [1,3,6,12]
+      seg_att: 15
+      avgPoolLen: 15
+      timeSmootherLen: 3
+      multiFact: 1
+      stratified: ['initial', 'middle1', 'middle2']
+      activ: 'softmax'
+      temp: 1.0
+      saveFea: False
+      has_att: True
+      extract_mode: '${val.extractor.fea_mode}'
+      global_att: False
+  MLLA:
+    patch_size: 32
+    patch_stride: 6
+    hidden_dim: 512
+    out_dim: 32
+    depth: 3
+    drop_path: 0.1
+    n_filter: 16
+    filterLen: 10
+    n_heads: 4
+    cnn:
+      n_timeFilters: 32
       timeFilterLen: 30
       n_msFilters: 4
       msFilter_timeLen: 3

@@ -10,10 +10,10 @@ import matplotlib.pyplot as plt
 import itertools
 import time
 import random
-from src.model.CNN_Attention import Conv_att_simple_new, Conv_att_simple_mlp
+from src.model.CNN_Attention import cnn_PatchTST, cnn_MLLA, Conv_att_simple_mlp
 from src.model.Channel_MLP import Channel_mlp_CNN
-from src.model.PatchTST import PatchTST_backbone
 from src.model.PatchTSTsingle import PatchTST_single_backbone
+from src.model.MLLA_new import channel_MLLA
 from src.loss.loss import SimCLRLoss
 
 class MultiModel_PL(pl.LightningModule):
@@ -49,7 +49,7 @@ class MultiModel_PL(pl.LightningModule):
                                               stride=cfg.model.TST_single.patch_stride,
                                               d_model=cfg.model.TST_single.cnn.n_timeFilters,
                                               n_heads=cfg.model.TST_single.n_heads)
-            self.cnn_encoder = Conv_att_simple_new(cfg.model.TST_single.cnn.n_timeFilters,
+            self.cnn_encoder = cnn_PatchTST(cfg.model.TST_single.cnn.n_timeFilters,
                                                cfg.model.TST_single.cnn.timeFilterLen,
                                                cfg.model.TST_single.cnn.n_msFilters,
                                                cfg.model.TST_single.cnn.msFilter_timeLen,
@@ -66,6 +66,36 @@ class MultiModel_PL(pl.LightningModule):
                                                cfg.model.TST_single.cnn.has_att,
                                                cfg.model.TST_single.cnn.extract_mode,
                                                cfg.model.TST_single.cnn.global_att)
+        if(cfg.model.encoder == 'MLLA'):
+            self.c_mlps = [Channel_mlp_CNN(cfg_i.n_channs, cfg.model.MLLA.cnn.n_channs) for cfg_i in cfg.data_cfg_list]
+            self.MLLA = channel_MLLA(
+                context_window=cfg.data_0.timeLen * cfg.data_0.fs,
+                patch_size=cfg.model.MLLA.patch_size,
+                hidden_dim=cfg.model.MLLA.hidden_dim,
+                out_dim=cfg.model.MLLA.out_dim,
+                depth=cfg.model.MLLA.depth,
+                patch_stride=cfg.model.MLLA.patch_stride,
+                drop_path=cfg.model.MLLA.drop_path,
+                n_filter=cfg.model.MLLA.n_filter,
+                filterLen=cfg.model.MLLA.filterLen,
+                n_heads=cfg.model.MLLA.n_heads)
+            self.cnn_encoder = cnn_MLLA(cfg.model.MLLA.cnn.n_timeFilters,
+                                               cfg.model.MLLA.cnn.timeFilterLen,
+                                               cfg.model.MLLA.cnn.n_msFilters,
+                                               cfg.model.MLLA.cnn.msFilter_timeLen,
+                                               cfg.model.MLLA.cnn.n_channs,
+                                               cfg.model.MLLA.cnn.dilation_array,
+                                               cfg.model.MLLA.cnn.seg_att, 
+                                               cfg.model.MLLA.cnn.avgPoolLen,
+                                               cfg.model.MLLA.cnn.timeSmootherLen,
+                                               cfg.model.MLLA.cnn.multiFact,
+                                               cfg.model.MLLA.cnn.stratified, 
+                                               cfg.model.MLLA.cnn.activ,
+                                               cfg.model.MLLA.cnn.temp,
+                                               cfg.model.MLLA.cnn.saveFea,
+                                               cfg.model.MLLA.cnn.has_att,
+                                               cfg.model.MLLA.cnn.extract_mode,
+                                               cfg.model.MLLA.cnn.global_att)
         self.clisa_loss = SimCLRLoss(cfg.train.loss.temp)
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.cfg.train.lr, weight_decay=self.cfg.train.wd)
@@ -86,28 +116,42 @@ class MultiModel_PL(pl.LightningModule):
                 self.cnn_encoder.saveFea = True
             x = self.cnn_encoder(x)
             return x
+        if(self.cfg.model.encoder == 'MLLA'):
+            x = self.MLLA(x)
+            x = torch.permute(x, (0, 3, 1, 2))
+            x = self.c_mlps[dataset](x)
+            if self.save_fea:
+                self.cnn_encoder.saveFea = True
+            x = self.cnn_encoder(x)
+            return x
     
     def training_step(self, batch, batch_idx):
         loss = 0
         x_list, y_list = batch
-        x_list = [x_i[0] for x_i in x_list]
-        # random_set = random.sample(range(len(x_list)-1), 3)
-        # x_list = [x_list[i] for i in random_set]
-        # y_list = [y_list[i] for i in random_set]
-        fea_clisa_list = []
-        for i in range(len(x_list)-1):
-            fea = self.forward(x_list[i], i)
-            fea_clisa_list.append(fea)
+        x_list = [x_i[0] for x_i in x_list]  # 提取数据
 
+        # 根据 batch_idx 固定选择样本
+        selected_idx = batch_idx % (len(x_list)-1)  # 使用 batch_idx 对 x_list 的长度取模
+
+        # 前向传播
+        fea = self.forward(x_list[selected_idx], selected_idx)
+
+        # 计算损失
         if self.cfg.train.loss.clisa_loss:
-            loss_clisa = [self.clisa_loss(fea_clisa_i) for fea_clisa_i in fea_clisa_list]
-            for i, [clisa_loss_i, logits_i, labels_i, [acc_1, acc_5]] in enumerate(loss_clisa):
-                loss += clisa_loss_i
-                self.log_dict({
-                    f'loss_clisa_{self.cfg.data_cfg_list[i].dataset_name}/train': clisa_loss_i,
-                    f'acc1_{self.cfg.data_cfg_list[i].dataset_name}/train': acc_1,
-                    f'acc5_{self.cfg.data_cfg_list[i].dataset_name}/train': acc_5,
-                }, on_step=False, on_epoch=True, prog_bar=True)
+            clisa_loss_i, logits_i, labels_i, (acc_1, acc_5) = self.clisa_loss(fea)
+            loss += clisa_loss_i
+
+            # 记录日志
+            self.log_dict({
+                f'loss_clisa_{self.cfg.data_cfg_list[selected_idx].dataset_name}/train': clisa_loss_i,
+                f'acc1_{self.cfg.data_cfg_list[selected_idx].dataset_name}/train': acc_1,
+                f'acc5_{self.cfg.data_cfg_list[selected_idx].dataset_name}/train': acc_5,
+            }, on_step=False, on_epoch=True, prog_bar=True)
+
+        # 显式释放显存（可选）
+        del fea, clisa_loss_i, logits_i, labels_i, acc_1, acc_5
+        torch.cuda.empty_cache()  # 清空缓存
+
         return loss
     
     def validation_step(self, batch, batch_idx):
