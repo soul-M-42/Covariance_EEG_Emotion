@@ -337,3 +337,35 @@ def reorder_vids_back(data, n_vids, vid_play_order_new):
         data_back[sub, vid_play_order_new[sub, :], :, :] = data_sub
     data_back = data_back.reshape(n_subs, n_vids*n_samples, data.shape[-1])
     return data_back
+
+def save_tensor_or_ndarray(data, save_name, save_path="./saved_data"):
+    """
+    保存 Tensor 或 NumPy 数组到本地文件。
+
+    参数:
+        data: 输入的 Tensor 或 NumPy 数组。
+        save_name: 保存的文件名（不带后缀）。
+        save_path: 保存的路径，默认为 "./saved_data"。
+
+    返回:
+        None
+    """
+    # 如果路径不存在，创建路径
+    os.makedirs(save_path, exist_ok=True)
+
+    # 检查输入类型
+    if isinstance(data, torch.Tensor):
+        # 如果 Tensor 在 GPU 上，移动到 CPU
+        if data.is_cuda:
+            data = data.cpu().detach()
+        # 转换为 NumPy 数组
+        data = data.numpy()
+    elif not isinstance(data, np.ndarray):
+        raise ValueError("输入必须是 PyTorch Tensor 或 NumPy 数组")
+
+    # 构建完整文件路径
+    file_path = os.path.join(save_path, f"{save_name}.npy")
+
+    # 保存为 .npy 文件
+    np.save(file_path, data)
+    print(f"数据已保存到: {file_path}")

@@ -16,3 +16,4 @@ clisa_run/
 wandb/
 cp/
 outputs/
+/saved_data

@@ -9,7 +9,7 @@ defaults:
   - data@data_val: SEEDV
 
 log:
-  run_name: 'PatchTST_3set'
+  run_name: 'TF_2set_3layers_2048ite'
   mlp_cp_dir: 'mlp_cp'
 
 data_cfg_list:
@@ -17,7 +17,7 @@ data_cfg_list:
 train:
   seed: 19260832
   n_fold: 1
-  n_pairs: 1024
+  n_pairs: 2048
   gpus: [0]
   iftest: False
   lr: 5e-4
@@ -34,7 +34,7 @@ train:
 val:
   extractor:
     use_pretrain: True
-    ckpt_epoch: 20
+    ckpt_epoch: 40
     n_fold: 4
     reverse: False
     normTrain: True
@@ -98,14 +98,11 @@ model:
       global_att: False
   MLLA:
     patch_size: 32
-    patch_stride: 6
-    hidden_dim: 512
+    patch_stride: 4
+    hidden_dim: 128
     out_dim: 32
     depth: 3
-    drop_path: 0.1
-    n_filter: 16
-    filterLen: 10
-    n_heads: 4
+    n_heads: 8
     cnn:
       n_timeFilters: 32
       timeFilterLen: 30

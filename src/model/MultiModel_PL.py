@@ -75,9 +75,6 @@ class MultiModel_PL(pl.LightningModule):
                 out_dim=cfg.model.MLLA.out_dim,
                 depth=cfg.model.MLLA.depth,
                 patch_stride=cfg.model.MLLA.patch_stride,
-                drop_path=cfg.model.MLLA.drop_path,
-                n_filter=cfg.model.MLLA.n_filter,
-                filterLen=cfg.model.MLLA.filterLen,
                 n_heads=cfg.model.MLLA.n_heads)
             self.cnn_encoder = cnn_MLLA(cfg.model.MLLA.cnn.n_timeFilters,
                                                cfg.model.MLLA.cnn.timeFilterLen,

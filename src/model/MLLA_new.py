@@ -6,12 +6,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from timm.models.layers import DropPath
-from src.utils import stratified_layerNorm
+from src.utils import stratified_layerNorm, save_tensor_or_ndarray
 from torch import Tensor
 from typing import Callable, Optional
 
 class   channel_MLLA(nn.Module):
-    def __init__(self, context_window, patch_size, hidden_dim, out_dim, depth, patch_stride, drop_path, n_filter, filterLen, n_heads):
+    def __init__(self, context_window, patch_size, hidden_dim, out_dim, depth, patch_stride, n_heads):
         super().__init__()
         self.patch_size = patch_size
         self.patch_stride = patch_stride
@@ -241,16 +241,20 @@ class MLLA_BasicLayer(nn.Module):
 
         # Build blocks
         self.blocks = nn.ModuleList([
-            TransformerEncoderLayer(q_len=q_len, d_model=hidden_dim, n_heads=num_heads, pre_norm=True)
+            TransformerEncoderLayer(q_len=q_len, d_model=hidden_dim, n_heads=num_heads,
+                                    d_k=None, d_v=None, d_ff=256, norm='BatchNorm',
+                                                      attn_dropout=0, dropout=0,
+                                                      activation='gelu', res_attention=False,
+                                                      pre_norm=False, store_attn=False)
             for _ in range(depth)
         ])
 
     def forward(self, x):
-        x = F.relu(self.read_in(x))
+        x = self.read_in(x)
         # print(x.shape)
         for blk in self.blocks:
             x = blk(x)
-        x = F.relu(self.read_out(x))
+        x = self.read_out(x)
         return x
 
 
