@@ -144,6 +144,19 @@ class MultiModel_PL(pl.LightningModule):
                 f'acc1_{self.cfg.data_cfg_list[selected_idx].dataset_name}/train': acc_1,
                 f'acc5_{self.cfg.data_cfg_list[selected_idx].dataset_name}/train': acc_5,
             }, on_step=False, on_epoch=True, prog_bar=True)
+        if self.cfg.train.loss.CDA_loss:
+            fea_cov = [self.forward(x_list[i], i) for i in range(len(x_list)-1)]
+            for fea_cov_i in fea_cov:
+                print(fea_cov_i.shape)
+            clisa_loss_i, logits_i, labels_i, (acc_1, acc_5) = self.clisa_loss(fea)
+            loss += clisa_loss_i
+
+            # 记录日志
+            self.log_dict({
+                f'loss_clisa_{self.cfg.data_cfg_list[selected_idx].dataset_name}/train': clisa_loss_i,
+                f'acc1_{self.cfg.data_cfg_list[selected_idx].dataset_name}/train': acc_1,
+                f'acc5_{self.cfg.data_cfg_list[selected_idx].dataset_name}/train': acc_5,
+            }, on_step=False, on_epoch=True, prog_bar=True)
 
         # 显式释放显存（可选）
         del fea, clisa_loss_i, logits_i, labels_i, acc_1, acc_5

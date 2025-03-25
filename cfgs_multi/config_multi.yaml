@@ -9,7 +9,7 @@ defaults:
   - data@data_val: SEEDV
 
 log:
-  run_name: 'TF_2set_3layers_2048ite'
+  run_name: 'LA_elu_test_40epoch'
   mlp_cp_dir: 'mlp_cp'
 
 data_cfg_list:
@@ -17,7 +17,7 @@ data_cfg_list:
 train:
   seed: 19260832
   n_fold: 1
-  n_pairs: 2048
+  n_pairs: 1024
   gpus: [0]
   iftest: False
   lr: 5e-4
@@ -30,11 +30,12 @@ train:
   loss:
     clisa_loss: True
     temp: 0.07
+    CDA_loss: False
 
 val:
   extractor:
     use_pretrain: True
-    ckpt_epoch: 40
+    ckpt_epoch: 30
     n_fold: 4
     reverse: False
     normTrain: True

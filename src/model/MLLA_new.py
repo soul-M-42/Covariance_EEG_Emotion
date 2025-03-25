@@ -9,6 +9,7 @@ from timm.models.layers import DropPath
 from src.utils import stratified_layerNorm, save_tensor_or_ndarray
 from torch import Tensor
 from typing import Callable, Optional
+from torch import nn, einsum
 
 class   channel_MLLA(nn.Module):
     def __init__(self, context_window, patch_size, hidden_dim, out_dim, depth, patch_stride, n_heads):
@@ -347,7 +348,8 @@ class _MultiheadAttention(nn.Module):
 
         # Scaled Dot-Product Attention (multiple heads)
         self.res_attention = res_attention
-        self.sdp_attn = _ScaledDotProductAttention(d_model, n_heads, attn_dropout=attn_dropout, res_attention=self.res_attention, lsa=lsa)
+        # self.sdp_attn = _ScaledDotProductAttention(d_model, n_heads, attn_dropout=attn_dropout, res_attention=self.res_attention, lsa=lsa)
+        self.lnr_attn = _LinearAttention(d_model, n_heads, attn_dropout=attn_dropout, res_attention=self.res_attention, lsa=lsa)
 
         # Poject output
         self.to_out = nn.Sequential(nn.Linear(n_heads * d_v, d_model), nn.Dropout(proj_dropout))
@@ -367,9 +369,9 @@ class _MultiheadAttention(nn.Module):
 
         # Apply Scaled Dot-Product Attention (multiple heads)
         if self.res_attention:
-            output, attn_weights, attn_scores = self.sdp_attn(q_s, k_s, v_s, prev=prev, key_padding_mask=key_padding_mask, attn_mask=attn_mask)
+            output, attn_weights, attn_scores = self.lnr_attn(q_s, k_s, v_s, prev=prev, key_padding_mask=key_padding_mask, attn_mask=attn_mask)
         else:
-            output, attn_weights = self.sdp_attn(q_s, k_s, v_s, key_padding_mask=key_padding_mask, attn_mask=attn_mask)
+            output, attn_weights = self.lnr_attn(q_s, k_s, v_s, key_padding_mask=key_padding_mask, attn_mask=attn_mask)
         # output: [bs x n_heads x q_len x d_v], attn: [bs x n_heads x q_len x q_len], scores: [bs x n_heads x max_q_len x q_len]
 
         # back to the original inputs dimensions
@@ -435,6 +437,58 @@ class _ScaledDotProductAttention(nn.Module):
         if self.res_attention: return output, attn_weights, attn_scores
         else: return output, attn_weights
 
+class _LinearAttention(nn.Module):
+    r"""Scaled Dot-Product Attention module (Attention is all you need by Vaswani et al., 2017) with optional residual attention from previous layer
+    (Realformer: Transformer likes residual attention by He et al, 2020) and locality self sttention (Vision Transformer for Small-Size Datasets
+    by Lee et al, 2021)"""
+
+    def __init__(self, d_model, n_heads, attn_dropout=0., res_attention=False, lsa=False):
+        super().__init__()
+        self.attn_dropout = nn.Dropout(attn_dropout)
+        self.res_attention = res_attention
+        head_dim = d_model // n_heads
+        self.scale = nn.Parameter(torch.tensor(head_dim ** -0.5), requires_grad=lsa)
+        self.lsa = lsa
+
+    def forward(self, q:Tensor, k:Tensor, v:Tensor, prev:Optional[Tensor]=None, key_padding_mask:Optional[Tensor]=None, attn_mask:Optional[Tensor]=None):
+        '''
+        Input shape:
+            q               : [bs x n_heads x max_q_len x d_k]
+            k               : [bs x n_heads x d_k x seq_len]
+            v               : [bs x n_heads x seq_len x d_v]
+            prev            : [bs x n_heads x q_len x seq_len]
+            key_padding_mask: [bs x seq_len]
+            attn_mask       : [1 x seq_len x seq_len]
+        Output shape:
+            output:  [bs x n_heads x q_len x d_v]
+            attn   : [bs x n_heads x q_len x seq_len]
+            scores : [bs x n_heads x q_len x seq_len]
+        '''
+        bs, n_head, L, dim = q.shape
+        eps = 1e-5
+        k = k.permute(0, 1, 3, 2)
+    
+        # 重排列为 [bs, L, n_head, dim]
+        Q = q.permute(0, 2, 1, 3)  # [bs, L, n_head, dim]
+        K = k.permute(0, 2, 1, 3)
+        V = v.permute(0, 2, 1, 3)
+        
+        # 特征映射 (ELU+1)
+        phi_Q = F.elu(Q) + 1  # [bs, L, n_head, dim]
+        phi_K = F.elu(K) + 1
+        
+        # 计算 KV = phi_K^T V (使用 einsum 避免维度混淆)
+        KV = torch.einsum('blhd,blhm->bhdm', phi_K, V)  # [bs, n_head, dim, dim]
+        
+        # 计算归一化因子 Z = 1 / (phi_Q * sum(phi_K))
+        K_sum = phi_K.sum(dim=1, keepdim=True)  # [bs, 1, n_head, dim]
+        Z = 1.0 / (torch.einsum('blhd,bkhd->blh', phi_Q, K_sum) + eps)  # [bs, L, n_head]
+        
+        # 计算输出 V_new = phi_Q * KV * Z
+        V_new = torch.einsum('blhd,bhdm->blhm', phi_Q, KV) * Z.unsqueeze(-1)  # [bs, L, n_head, dim]
+        
+        # 恢复原始维度 [bs, n_head, L, dim]
+        return V_new.permute(0, 2, 1, 3), None
 
 
 class Transpose(nn.Module):
