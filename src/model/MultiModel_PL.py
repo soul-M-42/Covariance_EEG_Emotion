@@ -15,6 +15,8 @@ from src.model.Channel_MLP import Channel_mlp_CNN
 from src.model.PatchTSTsingle import PatchTST_single_backbone
 from src.model.MLLA_new import channel_MLLA
 from src.loss.loss import SimCLRLoss
+from src.loss.CDA_loss import CDALoss
+from src.utils import report_vram
 
 class MultiModel_PL(pl.LightningModule):
     def __init__(self, cfg=None) -> None:
@@ -94,6 +96,7 @@ class MultiModel_PL(pl.LightningModule):
                                                cfg.model.MLLA.cnn.extract_mode,
                                                cfg.model.MLLA.cnn.global_att)
         self.clisa_loss = SimCLRLoss(cfg.train.loss.temp)
+        self.cda_loss = CDALoss(cfg)
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.cfg.train.lr, weight_decay=self.cfg.train.wd)
         return {'optimizer': optimizer}
@@ -117,49 +120,53 @@ class MultiModel_PL(pl.LightningModule):
             x = self.MLLA(x)
             x = torch.permute(x, (0, 3, 1, 2))
             x = self.c_mlps[dataset](x)
+            fea_cov = x
             if self.save_fea:
                 self.cnn_encoder.saveFea = True
             x = self.cnn_encoder(x)
-            return x
+            return x, fea_cov
     
     def training_step(self, batch, batch_idx):
         loss = 0
         x_list, y_list = batch
         x_list = [x_i[0] for x_i in x_list]  # 提取数据
+        fea_clisa = []
+        fea_cov = []
 
-        # 根据 batch_idx 固定选择样本
-        selected_idx = batch_idx % (len(x_list)-1)  # 使用 batch_idx 对 x_list 的长度取模
-
-        # 前向传播
-        fea = self.forward(x_list[selected_idx], selected_idx)
+        for dataset in range(len(x_list)-1):
+            fea_clisa_i, fea_cov_i = self.forward(x_list[dataset], dataset)
+            fea_clisa.append(fea_clisa_i)
+            fea_cov.append(fea_cov_i)
 
         # 计算损失
         if self.cfg.train.loss.clisa_loss:
-            clisa_loss_i, logits_i, labels_i, (acc_1, acc_5) = self.clisa_loss(fea)
-            loss += clisa_loss_i
+            for dataset, fea_clisa_i in enumerate(fea_clisa):
+                clisa_loss_i, logits_i, labels_i, (acc_1, acc_5) = self.clisa_loss(fea_clisa_i)
+                loss += clisa_loss_i
 
             # 记录日志
-            self.log_dict({
-                f'loss_clisa_{self.cfg.data_cfg_list[selected_idx].dataset_name}/train': clisa_loss_i,
-                f'acc1_{self.cfg.data_cfg_list[selected_idx].dataset_name}/train': acc_1,
-                f'acc5_{self.cfg.data_cfg_list[selected_idx].dataset_name}/train': acc_5,
-            }, on_step=False, on_epoch=True, prog_bar=True)
+                self.log_dict({
+                    f'loss_clisa_{self.cfg.data_cfg_list[dataset].dataset_name}/train': clisa_loss_i,
+                    # f'acc1_{self.cfg.data_cfg_list[dataset].dataset_name}/train': acc_1,
+                    # f'acc5_{self.cfg.data_cfg_list[dataset].dataset_name}/train': acc_5,
+                }, on_step=False, on_epoch=True, prog_bar=True)
         if self.cfg.train.loss.CDA_loss:
-            fea_cov = [self.forward(x_list[i], i) for i in range(len(x_list)-1)]
-            for fea_cov_i in fea_cov:
-                print(fea_cov_i.shape)
-            clisa_loss_i, logits_i, labels_i, (acc_1, acc_5) = self.clisa_loss(fea)
-            loss += clisa_loss_i
+            cda_loss = self.cda_loss(fea_cov) * self.cfg.train.loss.CDA_factor
+            loss += cda_loss
+            self.log_dict({
+                f'loss_cda/train': cda_loss,
+            }, on_step=False, on_epoch=True, prog_bar=True)
+
 
             # 记录日志
-            self.log_dict({
-                f'loss_clisa_{self.cfg.data_cfg_list[selected_idx].dataset_name}/train': clisa_loss_i,
-                f'acc1_{self.cfg.data_cfg_list[selected_idx].dataset_name}/train': acc_1,
-                f'acc5_{self.cfg.data_cfg_list[selected_idx].dataset_name}/train': acc_5,
-            }, on_step=False, on_epoch=True, prog_bar=True)
+            # self.log_dict({
+            #     f'loss_clisa_{self.cfg.data_cfg_list[selected_idx].dataset_name}/train': clisa_loss_i,
+            #     f'acc1_{self.cfg.data_cfg_list[selected_idx].dataset_name}/train': acc_1,
+            #     f'acc5_{self.cfg.data_cfg_list[selected_idx].dataset_name}/train': acc_5,
+            # }, on_step=False, on_epoch=True, prog_bar=True)
 
         # 显式释放显存（可选）
-        del fea, clisa_loss_i, logits_i, labels_i, acc_1, acc_5
+        del fea_clisa, fea_cov, clisa_loss_i, logits_i, labels_i, acc_1, acc_5
         torch.cuda.empty_cache()  # 清空缓存
 
         return loss
@@ -171,5 +178,5 @@ class MultiModel_PL(pl.LightningModule):
     def predict_step(self, batch, batch_idx):
         x, y = batch
         # 用来临时指定predict时用谁的mlp。-1即为未训练的随机mlp。（原本是作为微调基底）
-        fea = self.forward(x, 0)
-        return fea
+        fea_clisa_i, fea_cov_i = self.forward(x, 0)
+        return fea_clisa_i

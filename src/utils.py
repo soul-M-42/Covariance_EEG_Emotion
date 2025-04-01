@@ -4,6 +4,9 @@ import torch
 import matplotlib.pyplot as plt
 import os
 import hdf5storage
+import logging
+import socket
+from datetime import datetime, timedelta
 
 def get_current_time_string():
     # 获取当前时间
@@ -369,3 +372,50 @@ def save_tensor_or_ndarray(data, save_name, save_path="./saved_data"):
     # 保存为 .npy 文件
     np.save(file_path, data)
     print(f"数据已保存到: {file_path}")
+
+import torch
+
+def report_vram(tensor: torch.Tensor):
+    print(tensor.shape)
+    """返回张量占用的 VRAM 大小（以字节为单位）
+    
+    Args:
+        tensor (torch.Tensor): 输入的 PyTorch 张量
+        
+    Returns:
+        int: 张量占用的 VRAM 大小（字节）
+    """
+    if not tensor.is_cuda:
+        print("Warning: Tensor is not on GPU. Returning CPU memory usage instead.")
+    
+    # 计算张量占用的总字节数 = 元素数量 × 每个元素的字节大小
+    bytes = tensor.numel() * tensor.element_size()
+    report = f"Tensor VRAM usage: {bytes / 1024 ** 2:.2f} MB"
+    return report
+
+TIME_FORMAT_STR: str = "%b_%d_%H_%M_%S"
+def trace_handler(prof: torch.profiler.profile):
+   # Prefix for file names.
+   host_name = socket.gethostname()
+   timestamp = datetime.now().strftime(TIME_FORMAT_STR)
+   file_prefix = f"{host_name}_{timestamp}"
+
+   # Construct the trace file.
+#    prof.export_chrome_trace(f"{file_prefix}.json.gz")
+
+   # Construct the memory timeline file.
+   prof.export_memory_timeline(f"{file_prefix}.html", device="cuda:0")
+
+def get_vram_profiler():
+    prof = torch.profiler.profile(
+       activities=[
+            torch.profiler.ProfilerActivity.CPU,
+            torch.profiler.ProfilerActivity.CUDA,
+        ],
+        schedule=torch.profiler.schedule(wait=0, warmup=0, active=6, repeat=1),
+        record_shapes=True,
+        profile_memory=True,
+        with_stack=True,
+        on_trace_ready=trace_handler,
+        )
+    return prof

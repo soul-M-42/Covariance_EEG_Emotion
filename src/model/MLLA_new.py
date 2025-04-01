@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from timm.models.layers import DropPath
-from src.utils import stratified_layerNorm, save_tensor_or_ndarray
+from src.utils import stratified_layerNorm, save_tensor_or_ndarray, report_vram
 from torch import Tensor
 from typing import Callable, Optional
 from torch import nn, einsum
@@ -469,16 +469,16 @@ class _LinearAttention(nn.Module):
         k = k.permute(0, 1, 3, 2)
     
         # 重排列为 [bs, L, n_head, dim]
-        Q = q.permute(0, 2, 1, 3)  # [bs, L, n_head, dim]
-        K = k.permute(0, 2, 1, 3)
-        V = v.permute(0, 2, 1, 3)
+        q = q.permute(0, 2, 1, 3)  # [bs, L, n_head, dim]
+        k = k.permute(0, 2, 1, 3)
+        v = v.permute(0, 2, 1, 3)
         
         # 特征映射 (ELU+1)
-        phi_Q = F.elu(Q) + 1  # [bs, L, n_head, dim]
-        phi_K = F.elu(K) + 1
+        phi_Q = F.elu(q) + 1  # [bs, L, n_head, dim]
+        phi_K = F.elu(k) + 1
         
         # 计算 KV = phi_K^T V (使用 einsum 避免维度混淆)
-        KV = torch.einsum('blhd,blhm->bhdm', phi_K, V)  # [bs, n_head, dim, dim]
+        KV = torch.einsum('blhd,blhm->bhdm', phi_K, v)  # [bs, n_head, dim, dim]
         
         # 计算归一化因子 Z = 1 / (phi_Q * sum(phi_K))
         K_sum = phi_K.sum(dim=1, keepdim=True)  # [bs, 1, n_head, dim]
