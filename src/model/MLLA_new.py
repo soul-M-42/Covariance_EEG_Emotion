@@ -229,7 +229,7 @@ class MLLA_EEG_Block(nn.Module):
 class MLLA_BasicLayer(nn.Module):
     """ A basic MLLA layer for one stage."""
 
-    def __init__(self, q_len, in_dim, hidden_dim, out_dim, depth, num_heads):
+    def __init__(self, q_len, in_dim, hidden_dim, out_dim, depth, num_heads, encoder_type='MLLA'):
         super().__init__()
         self.in_dim = in_dim
         self.hidden_dim = hidden_dim
@@ -241,14 +241,24 @@ class MLLA_BasicLayer(nn.Module):
         self.read_out = nn.Linear(hidden_dim, out_dim)
 
         # Build blocks
-        self.blocks = nn.ModuleList([
-            TransformerEncoderLayer(q_len=q_len, d_model=hidden_dim, n_heads=num_heads,
-                                    d_k=None, d_v=None, d_ff=256, norm='BatchNorm',
-                                                      attn_dropout=0, dropout=0,
-                                                      activation='gelu', res_attention=False,
-                                                      pre_norm=False, store_attn=False)
-            for _ in range(depth)
-        ])
+        if(encoder_type == 'Transformer'):
+            self.blocks = nn.ModuleList([
+                TransformerEncoderLayer(q_len=q_len, d_model=hidden_dim, n_heads=num_heads,
+                                        d_k=None, d_v=None, d_ff=256, norm='BatchNorm',
+                                                        attn_dropout=0, dropout=0,
+                                                        activation='gelu', res_attention=False,
+                                                        pre_norm=False, store_attn=False)
+                for _ in range(depth)
+            ])
+        if(encoder_type == 'MLLA'):
+            self.blocks = nn.ModuleList([
+                MLLAEncoderLayer(q_len=q_len, d_model=hidden_dim, n_heads=num_heads,
+                                        d_k=None, d_v=None, d_ff=256, norm='BatchNorm',
+                                                        attn_dropout=0, dropout=0,
+                                                        activation='gelu', res_attention=False,
+                                                        pre_norm=False, store_attn=False)
+                for _ in range(depth)
+            ])
 
     def forward(self, x):
         x = self.read_in(x)
@@ -328,6 +338,55 @@ class TransformerEncoderLayer(nn.Module):
             return src
 
 
+class MLLAEncoderLayer(nn.Module):
+    def __init__(self, q_len, d_model, n_heads, d_k=None, d_v=None, d_ff=256, store_attn=False,
+                 norm='BatchNorm', attn_dropout=0, dropout=0., bias=True, activation="gelu", res_attention=False, pre_norm=False):
+        super().__init__()
+        assert not d_model%n_heads, f"d_model ({d_model}) must be divisible by n_heads ({n_heads})"
+        d_k = d_model // n_heads if d_k is None else d_k
+        d_v = d_model // n_heads if d_v is None else d_v
+
+        # Multi-Head attention
+        self.res_attention = res_attention
+        self.self_attn = _MultiheadAttention(d_model, n_heads, d_k, d_v, attn_dropout=attn_dropout, proj_dropout=dropout, res_attention=res_attention)
+
+        self.ff = nn.Sequential(nn.Linear(d_model, d_ff, bias=bias),
+                                nn.GELU(),
+                                nn.Dropout(dropout),
+                                nn.Linear(d_ff, d_model, bias=bias))
+        self.cpe1 = nn.Conv1d(d_model, d_model, 3, padding=1, groups=d_model)
+        self.cpe2 = nn.Conv1d(d_model, d_model, 3, padding=1, groups=d_model)
+        self.dwc = nn.Conv1d(d_model, d_model, 3, padding=1, groups=d_model)
+        norm_layer=nn.LayerNorm
+        self.norm1 = norm_layer(d_model)
+        self.norm2 = norm_layer(d_model)
+        self.act_proj = nn.Linear(d_model, d_model)
+        self.in_proj = nn.Linear(d_model, d_model)
+        self.out_proj = nn.Linear(d_model, d_model)
+        self.act = nn.SiLU()
+
+
+    def forward(self, src:Tensor, prev:Optional[Tensor]=None, key_padding_mask:Optional[Tensor]=None, attn_mask:Optional[Tensor]=None) -> Tensor:
+        src = src + self.cpe1(src.permute(0, 2, 1)).permute(0, 2, 1)
+        shortcut = src
+        src = self.norm1(src)
+        act_res = self.act(self.act_proj(src))
+        src = self.in_proj(src)
+        src = self.act(self.dwc(src.permute(0, 2, 1))).permute(0, 2, 1)
+        # Linear Attention
+        if self.res_attention:
+            src2, attn, scores = self.self_attn(src, src, src, prev, key_padding_mask=key_padding_mask, attn_mask=attn_mask)
+        else:
+            src2, attn = self.self_attn(src, src, src, key_padding_mask=key_padding_mask, attn_mask=attn_mask)
+        src2 = self.out_proj(src2 * act_res)
+        src2 = shortcut + src2
+        src2 = src2 + self.cpe2(src2.permute(0, 2, 1)).permute(0, 2, 1)
+        # FFN
+        src2 = src2 + self.ff(src2)
+        if self.res_attention:
+            return src, scores
+        else:
+            return src
 class _MultiheadAttention(nn.Module):
     def __init__(self, d_model, n_heads, d_k=None, d_v=None, res_attention=False, attn_dropout=0., proj_dropout=0., qkv_bias=True, lsa=False):
         """Multi Head Attention Layer
