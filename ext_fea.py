@@ -50,6 +50,8 @@ def ext_fea(cfg: DictConfig) -> None:
         os.makedirs(save_dir) 
     np.save(save_dir+'/onesub_label.npy',onesub_label)
     val_subs_all = cfg.data_val.val_subs_all
+    if cfg.val.n_fold == "loo":
+        val_subs_all = [[i] for i in range(cfg.data_val.n_subs)]
     n_folds = len(val_subs_all)
     if cfg.val.extractor.use_pretrain:
         print('Use pretrain model:')

@@ -22,6 +22,8 @@ def train_mlp(cfg: DictConfig) -> None:
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     val_subs_all = cfg.data_val.val_subs_all
+    if cfg.val.n_fold == "loo":
+        val_subs_all = [[i] for i in range(cfg.data_val.n_subs)]
     n_folds = len(val_subs_all)
     best_val_acc_list = []
     for fold in range(0,n_folds):

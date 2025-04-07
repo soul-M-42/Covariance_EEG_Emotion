@@ -3,13 +3,13 @@ defaults:
   - _self_
   - data@data_0: SEED
   - data@data_1: FACED_blink_only
-  - data@data_2: SEEDVII
+  - data@data_2: None
   - data@data_3: None
   - data@data_4: None
   - data@data_val: SEEDV
 
 log:
-  run_name: 'test'
+  run_name: 'True_MLLA_2set_loo'
   mlp_cp_dir: 'mlp_cp'
 
 data_cfg_list:
@@ -35,10 +35,10 @@ train:
     to_riem: False
 
 val:
+  n_fold: 'loo'
   extractor:
     use_pretrain: True
     ckpt_epoch: 20
-    n_fold: 4
     reverse: False
     normTrain: True
     batch_size: 64
