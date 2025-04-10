@@ -42,7 +42,7 @@ def train_mlp(cfg: DictConfig) -> None:
         print(f'finetune_subs:{train_subs}')
         print(f'val_subs:{val_subs}')
         save_dir = os.path.join(cfg.data_val.data_dir,'ext_fea')
-        save_path = os.path.join(save_dir,cfg.log.run_name+f'_f{fold}_fea_{f'epoch={(cfg.val.extractor.ckpt_epoch-1):02d}.ckpt' if cfg.val.extractor.use_pretrain else ""}{cfg.val.extractor.fea_mode if cfg.val.extractor.use_pretrain else "DE"}.npy')
+        save_path = os.path.join(save_dir,cfg.log.run_name+f'_f{fold}_fea_{f'epoch={(cfg.val.extractor.ckpt_epoch-1):02d}.ckpt' if cfg.val.extractor.use_pretrain else ""}{cfg.val.extractor.fea_mode if cfg.val.extractor.use_pretrain else cfg.val.extractor.fea_mode}.npy')
         data = np.load(save_path)
         print('fea data load from: '+ save_path)
         if np.isnan(data).any():

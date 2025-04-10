@@ -65,6 +65,8 @@ def ext_fea(cfg: DictConfig) -> None:
         trainer = pl.Trainer(accelerator='gpu', devices=cfg.train.gpus)
     for fold in tqdm(range(0,n_folds), desc='Extracting feature......'):
         val_subs = val_subs_all[fold]
+        if not cfg.val.extractor.normTrain:
+            val_subs = []
         train_subs = list(set(range(cfg.data_val.n_subs)) - set(val_subs))
         if cfg.val.extractor.reverse:
             train_subs, val_subs = val_subs, train_subs
@@ -73,6 +75,8 @@ def ext_fea(cfg: DictConfig) -> None:
         data_train = data[train_subs]
         if cfg.val.extractor.normTrain:
             data_fold = normTrain(data,data_train)
+        else:
+            data_fold = data
         if cfg.val.extractor.use_pretrain:
             print('Use pretrain model:')
             data_fold = data_fold.reshape(-1, data_fold.shape[-2], data_fold.shape[-1])
@@ -147,10 +151,11 @@ def ext_fea(cfg: DictConfig) -> None:
         
         n_samples_onesub_cum = np.concatenate((np.array([0]), np.cumsum(n_samples_onesub)))
         # LDS
-        for sub in tqdm(range(cfg.data_val.n_subs), desc='LDS......'):
-            for vid in tqdm(range(len(n_samples_onesub)), desc=f'LDS Processing sub: {sub}', leave=False):
-                fea[sub,n_samples_onesub_cum[vid]:n_samples_onesub_cum[vid+1]] = LDS_gpu(fea[sub,n_samples_onesub_cum[vid]:n_samples_onesub_cum[vid+1]])
-            # print('LDS:',fea[sub,0])
+        if(cfg.val.extractor.LDS):
+            for sub in tqdm(range(cfg.data_val.n_subs), desc='LDS......'):
+                for vid in tqdm(range(len(n_samples_onesub)), desc=f'LDS Processing sub: {sub}', leave=False):
+                    fea[sub,n_samples_onesub_cum[vid]:n_samples_onesub_cum[vid+1]] = LDS_gpu(fea[sub,n_samples_onesub_cum[vid]:n_samples_onesub_cum[vid+1]])
+                # print('LDS:',fea[sub,0])
         fea = fea.reshape(-1,fea.shape[-1])
         if np.isinf(fea).any():
             print("There are inf values in the array")
@@ -160,9 +165,14 @@ def ext_fea(cfg: DictConfig) -> None:
             print("There are nan values in the array")
         else:
             print('no nan')
-        save_path = os.path.join(save_dir,cfg.log.run_name+f'_f{fold}_fea_{f'epoch={(cfg.val.extractor.ckpt_epoch-1):02d}.ckpt' if cfg.val.extractor.use_pretrain else ""}{cfg.val.extractor.fea_mode if cfg.val.extractor.use_pretrain else "DE"}.npy')
+        if not cfg.val.extractor.normTrain:
+            save_path = os.path.join(save_dir,cfg.log.run_name+f'_all_fea_{f'epoch={(cfg.val.extractor.ckpt_epoch-1):02d}.ckpt' if cfg.val.extractor.use_pretrain else ""}{cfg.val.extractor.fea_mode if cfg.val.extractor.use_pretrain else cfg.val.extractor.fea_mode}.npy')
+        else:
+            save_path = os.path.join(save_dir,cfg.log.run_name+f'_f{fold}_fea_{f'epoch={(cfg.val.extractor.ckpt_epoch-1):02d}.ckpt' if cfg.val.extractor.use_pretrain else ""}{cfg.val.extractor.fea_mode if cfg.val.extractor.use_pretrain else cfg.val.extractor.fea_mode}.npy')
         np.save(save_path,fea)
         print(f'fea saved to {save_path}')
+        if not cfg.val.extractor.normTrain:
+            break
 
 
 if __name__ == '__main__':
