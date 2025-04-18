@@ -1,7 +1,8 @@
 import hydra
 from omegaconf import DictConfig
 import os
-os.environ["CUDA_VISIBLE_DEVICES"]="4"
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1, 2, 4, 5"
 os.environ["WORLD_SIZE"]="1"
 import torch
 import numpy as np
@@ -60,7 +61,7 @@ def run_pipeline(cfg: DictConfig):
         trainer = pl.Trainer(
             callbacks=[checkpoint_callback],
             max_epochs=cfg.train.max_epochs, min_epochs=cfg.train.min_epochs, 
-            accelerator='gpu', devices=cfg.train.gpus,
+            accelerator='gpu', devices=cfg.train.n_gpu_use, strategy='ddp_find_unused_parameters_true',
             limit_val_batches=limit_val_batches
         )
         trainer.fit(model, dm)

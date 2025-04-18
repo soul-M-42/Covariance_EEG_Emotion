@@ -62,7 +62,7 @@ def ext_fea(cfg: DictConfig) -> None:
         Extractor = MultiModel_PL.load_from_checkpoint(checkpoint_path=cp_path, cfg=cfg)
         Extractor.save_fea = True
         Extractor.cnn_encoder.set_saveFea(True)
-        trainer = pl.Trainer(accelerator='gpu', devices=cfg.train.gpus)
+        trainer = pl.Trainer(accelerator='gpu', devices=1)
     for fold in tqdm(range(0,n_folds), desc='Extracting feature......'):
         val_subs = val_subs_all[fold]
         if not cfg.val.extractor.normTrain:

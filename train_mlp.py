@@ -62,7 +62,7 @@ def train_mlp(cfg: DictConfig) -> None:
         predictor = MLPModel(model_mlp, cfg.val.mlp)
         trainer = pl.Trainer(callbacks=[checkpoint_callback],
                              max_epochs=cfg.val.mlp.max_epochs, min_epochs=cfg.val.mlp.min_epochs,
-                             accelerator='gpu', devices=cfg.val.mlp.gpus, limit_val_batches=1.0)
+                             accelerator='gpu', devices=1, limit_val_batches=1.0)
         trainer.fit(predictor, trainLoader, valLoader)
         bese_acc = trainer.checkpoint_callback.best_model_score.detach().cpu().numpy()
         best_val_acc_list.append(bese_acc)

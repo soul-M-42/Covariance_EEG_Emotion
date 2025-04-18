@@ -419,3 +419,7 @@ def get_vram_profiler():
         on_trace_ready=trace_handler,
         )
     return prof
+
+def read_npy(dir):
+    data = np.load(dir)
+    return data, data.shape

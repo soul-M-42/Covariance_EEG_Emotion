@@ -5,7 +5,6 @@ import os
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-torch.set_default_tensor_type('torch.cuda.FloatTensor')
 import matplotlib.pyplot as plt
 import itertools
 import time
@@ -69,7 +68,7 @@ class MultiModel_PL(pl.LightningModule):
                                                cfg.model.TST_single.cnn.extract_mode,
                                                cfg.model.TST_single.cnn.global_att)
         if(cfg.model.encoder == 'MLLA'):
-            self.c_mlps = [Channel_mlp_CNN(cfg_i.n_channs, cfg.model.MLLA.cnn.n_channs) for cfg_i in cfg.data_cfg_list]
+            self.c_mlps = nn.ModuleList([Channel_mlp_CNN(cfg_i.n_channs, cfg.model.MLLA.cnn.n_channs) for cfg_i in cfg.data_cfg_list])
             self.MLLA = channel_MLLA(
                 context_window=cfg.data_0.timeLen * cfg.data_0.fs,
                 patch_size=cfg.model.MLLA.patch_size,
@@ -157,13 +156,6 @@ class MultiModel_PL(pl.LightningModule):
                 f'loss_cda/train': cda_loss,
             }, on_step=False, on_epoch=True, prog_bar=True)
 
-
-            # 记录日志
-            # self.log_dict({
-            #     f'loss_clisa_{self.cfg.data_cfg_list[selected_idx].dataset_name}/train': clisa_loss_i,
-            #     f'acc1_{self.cfg.data_cfg_list[selected_idx].dataset_name}/train': acc_1,
-            #     f'acc5_{self.cfg.data_cfg_list[selected_idx].dataset_name}/train': acc_5,
-            # }, on_step=False, on_epoch=True, prog_bar=True)
 
         # 显式释放显存（可选）
         del fea_clisa, fea_cov, clisa_loss_i, logits_i, labels_i, acc_1, acc_5
