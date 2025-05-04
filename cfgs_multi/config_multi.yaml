@@ -2,14 +2,14 @@
 defaults:
   - _self_
   - data@data_0: SEED
-  - data@data_1: None
-  - data@data_2: None
-  - data@data_3: None
+  - data@data_1: SEEDIV
+  - data@data_2: SEEDVII
+  - data@data_3: DEAP
   - data@data_4: None
-  - data@data_val: SEEDV
+  - data@data_val: SEEDVII
 
 log:
-  run_name: 'SEEDV_13_S1'
+  run_name: 'BALANCED_S1S4S7D_CDA=0'
   mlp_cp_dir: 'mlp_cp'
 
 data_cfg_list:
@@ -19,7 +19,7 @@ train:
   seed: 19260832
   n_fold: 1
   n_pairs: 1024
-  n_gpu_use: 5
+  n_gpu_use: 3
   iftest: False
   lr: 5e-4
   wd: 0.0001
@@ -41,7 +41,7 @@ val:
     use_pretrain: True
     ckpt_epoch: 20
     reverse: False
-    normTrain: True
+    normTrain: False
     batch_size: 64
     fea_mode: 'me'
     rn_decay: 0.990
@@ -107,6 +107,11 @@ model:
     out_dim: 32
     depth: 2
     n_heads: 8
+    uni_channels: [
+        "FP1", "FP2", "FZ", "F3", "F4", "F7", "F8", "FC1", "FC2", "FC5", "FC6", "CZ",
+        "C3", "C4", "T7", "T8", "CP1", "CP2", "CP5", "CP6", "PZ", "P3", "P4", "P7",
+        "P8", "PO3", "PO4", "OZ", "O1", "O2"
+    ]
     cnn:
       n_timeFilters: 32
       timeFilterLen: 30

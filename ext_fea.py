@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"]="2"
+os.environ["CUDA_VISIBLE_DEVICES"]="0"
 os.environ["WORLD_SIZE"]="1"
 import numpy as np
 from src.data.io_utils import load_finetune_EEG_data, get_load_data_func, load_processed_SEEDV_NEW_data
@@ -49,23 +49,29 @@ def ext_fea(cfg: DictConfig) -> None:
     if not os.path.exists(save_dir):
         os.makedirs(save_dir) 
     np.save(save_dir+'/onesub_label.npy',onesub_label)
-    val_subs_all = cfg.data_val.val_subs_all
-    if cfg.val.n_fold == "loo":
-        val_subs_all = [[i] for i in range(cfg.data_val.n_subs)]
-    n_folds = len(val_subs_all)
+    if cfg.val.extractor.normTrain:
+        val_subs_all = cfg.data_val.val_subs_all
+        if cfg.val.n_fold == "loo":
+            val_subs_all = [[i] for i in range(cfg.data_val.n_subs)]
+            n_folds = len(val_subs_all)
+        else:
+            n_folds = len(val_subs_all)
+    else:
+        n_folds = 1
     if cfg.val.extractor.use_pretrain:
         print('Use pretrain model:')
         cp_path = os.path.join('log', cfg.log.run_name, 'ckpt', f'epoch={(cfg.val.extractor.ckpt_epoch-1):02d}.ckpt')
         print(f'checkpoint load from: {cp_path}')
         cfg.data_cfg_list = [cfg.data_0, cfg.data_1, cfg.data_2, cfg.data_3, cfg.data_4, cfg.data_val]
         cfg.data_cfg_list = [cfg_i for cfg_i in cfg.data_cfg_list if cfg_i.dataset_name != 'None']
-        Extractor = MultiModel_PL.load_from_checkpoint(checkpoint_path=cp_path, cfg=cfg)
+        Extractor = MultiModel_PL.load_from_checkpoint(checkpoint_path=cp_path, cfg=cfg, strict=False)
         Extractor.save_fea = True
         Extractor.cnn_encoder.set_saveFea(True)
         trainer = pl.Trainer(accelerator='gpu', devices=1)
     for fold in tqdm(range(0,n_folds), desc='Extracting feature......'):
-        val_subs = val_subs_all[fold]
-        if not cfg.val.extractor.normTrain:
+        if cfg.val.extractor.normTrain:
+            val_subs = val_subs_all[fold]
+        else:
             val_subs = []
         train_subs = list(set(range(cfg.data_val.n_subs)) - set(val_subs))
         if cfg.val.extractor.reverse:
@@ -131,11 +137,12 @@ def ext_fea(cfg: DictConfig) -> None:
         n_sample_sum_sessions = np.sum(n_samples_sessions,1)
         n_sample_sum_sessions_cum = np.concatenate((np.array([0]), np.cumsum(n_sample_sum_sessions)))
         # print(f'before norm:{fea.shape}')
-        for sub in tqdm(range(cfg.data_val.n_subs), desc='Running norm......'):
-            for s in tqdm(range(len(n_sample_sum_sessions)), desc=f'running norm sub: {sub}', leave=False):
-                fea[sub,n_sample_sum_sessions_cum[s]:n_sample_sum_sessions_cum[s+1]] = running_norm_onesubsession(
-                                            fea[sub,n_sample_sum_sessions_cum[s]:n_sample_sum_sessions_cum[s+1]],
-                                            data_mean,data_var,cfg.val.extractor.rn_decay)
+        if(cfg.val.extractor.normTrain):
+            for sub in tqdm(range(cfg.data_val.n_subs), desc='Running norm......'):
+                for s in tqdm(range(len(n_sample_sum_sessions)), desc=f'running norm sub: {sub}', leave=False):
+                    fea[sub,n_sample_sum_sessions_cum[s]:n_sample_sum_sessions_cum[s+1]] = running_norm_onesubsession(
+                                                fea[sub,n_sample_sum_sessions_cum[s]:n_sample_sum_sessions_cum[s+1]],
+                                                data_mean,data_var,cfg.val.extractor.rn_decay)
         # print(f'before LDS:{fea.shape}')
         if np.isinf(fea).any():
             print("There are inf values in the array")

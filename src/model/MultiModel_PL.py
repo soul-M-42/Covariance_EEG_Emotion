@@ -68,7 +68,8 @@ class MultiModel_PL(pl.LightningModule):
                                                cfg.model.TST_single.cnn.extract_mode,
                                                cfg.model.TST_single.cnn.global_att)
         if(cfg.model.encoder == 'MLLA'):
-            self.c_mlps = nn.ModuleList([Channel_mlp_CNN(cfg_i.n_channs, cfg.model.MLLA.cnn.n_channs) for cfg_i in cfg.data_cfg_list])
+            # self.c_mlps = nn.ModuleList([Channel_mlp_CNN(cfg_i.n_channs, cfg.model.MLLA.cnn.n_channs) for cfg_i in cfg.data_cfg_list])
+            self.uni_mlp = Channel_mlp_CNN(len(cfg.model.MLLA.uni_channels), cfg.model.MLLA.cnn.n_channs)
             self.MLLA = channel_MLLA(
                 context_window=cfg.data_0.timeLen * cfg.data_0.fs,
                 patch_size=cfg.model.MLLA.patch_size,
@@ -118,7 +119,8 @@ class MultiModel_PL(pl.LightningModule):
         if(self.cfg.model.encoder == 'MLLA'):
             x = self.MLLA(x)
             x = torch.permute(x, (0, 3, 1, 2))
-            x = self.c_mlps[dataset](x)
+            # x = self.c_mlps[dataset](x)
+            x = self.uni_mlp(x)
             fea_cov = x
             if self.save_fea:
                 self.cnn_encoder.saveFea = True
@@ -128,7 +130,8 @@ class MultiModel_PL(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         loss = 0
         x_list, y_list = batch
-        x_list = [x_i[0] for x_i in x_list]  # 提取数据
+        # x_list = [x_i[0] for x_i in x_list]  # 提取数据
+        x_list = [self.channel_project(x_list[i][0], self.cfg.data_cfg_list[i].channels, self.cfg.model.MLLA.uni_channels) for i in range(len(x_list))]  # 提取数据
         fea_clisa = []
         fea_cov = []
 
@@ -170,5 +173,20 @@ class MultiModel_PL(pl.LightningModule):
     def predict_step(self, batch, batch_idx):
         x, y = batch
         # 用来临时指定predict时用谁的mlp。-1即为未训练的随机mlp。（原本是作为微调基底）
+        x = self.channel_project(x, self.cfg.data_val.channels, self.cfg.model.MLLA.uni_channels)
         fea_clisa_i, fea_cov_i = self.forward(x, 0)
         return fea_clisa_i
+    
+    def channel_project(self, data, cha_source, cha_target):
+        
+        # 压缩中间的单维度 [batch_size, 1, n_channel_source, n_time] => [batch_size, n_channel_source, n_time]
+        data = data.squeeze(1)
+        
+        # 获取目标通道在源中的索引（按cha_target顺序）
+        indices = [cha_source.index(ch) for ch in cha_target if ch in cha_source]
+        
+        # 按索引筛选通道 [batch_size, n_channel_target, n_time]
+        projected_data = data[:, indices, :]
+        projected_data = projected_data.unsqueeze(1)
+        
+        return projected_data

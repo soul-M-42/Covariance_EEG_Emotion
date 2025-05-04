@@ -10,8 +10,8 @@ n_vids: 28
 n_class: 9      # 2/9 for classification
 timeLen: 5    
 timeStep: 2   
-timeLen2: 1   
-timeStep2: 1  
+timeLen2: 5   
+timeStep2: 2  
 
 class_names: ['Anger', 'Disgust', 'Fear', 'Sadness', 'neutral', 'Amusement', 'Inspiration', 'Joy', 'Tenderness']
 class_proj: [0, 1, 2, 3, 4, 5, 6, 7, 8]
