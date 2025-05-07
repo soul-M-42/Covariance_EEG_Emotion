@@ -2,14 +2,14 @@
 defaults:
   - _self_
   - data@data_0: SEED
-  - data@data_1: SEEDIV
-  - data@data_2: SEEDVII
-  - data@data_3: DEAP
+  - data@data_1: FACED_blink_only_small
+  - data@data_2: DEAP
+  - data@data_3: None
   - data@data_4: None
-  - data@data_val: SEEDVII
+  - data@data_val: SEEDV
 
 log:
-  run_name: 'BALANCED_S1S4S7D_CDA=0'
+  run_name: 'UNI_S1FD_CDA=0'
   mlp_cp_dir: 'mlp_cp'
 
 data_cfg_list:
@@ -19,7 +19,7 @@ train:
   seed: 19260832
   n_fold: 1
   n_pairs: 1024
-  n_gpu_use: 3
+  n_gpu_use: 1
   iftest: False
   lr: 5e-4
   wd: 0.0001
@@ -32,7 +32,7 @@ train:
     clisa_loss: True
     temp: 0.07
     CDA_loss: True
-    CDA_factor: 2e-2
+    CDA_factor: 0
     to_riem: False
 
 val:
@@ -41,7 +41,7 @@ val:
     use_pretrain: True
     ckpt_epoch: 20
     reverse: False
-    normTrain: False
+    normTrain: True
     batch_size: 64
     fea_mode: 'me'
     rn_decay: 0.990
@@ -102,7 +102,7 @@ model:
       global_att: False
   MLLA:
     patch_size: 32
-    patch_stride: 4
+    patch_stride: 6
     hidden_dim: 128
     out_dim: 32
     depth: 2

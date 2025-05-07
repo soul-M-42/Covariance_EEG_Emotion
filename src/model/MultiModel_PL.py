@@ -22,6 +22,16 @@ class MultiModel_PL(pl.LightningModule):
         super().__init__()
         self.cfg = cfg
         self.save_fea = False
+        
+        # load channel project matrix
+        cha_weight_dir = '/mnt/dataset1/ws2319/workspace/ESI_pipelines/qingzhu/leadfield_fsaverage_standard_1020.npz'
+        cha_weight_data = np.load(cha_weight_dir)
+        leadfield =cha_weight_data['leadfield']
+        self.uni_channel_names = cha_weight_data['channel_names']
+        cha_weight_data.close()
+        pinv_leadfield = np.linalg.pinv(leadfield)
+        self.leadfield = torch.Tensor(leadfield)
+        self.pinv_leadfield = torch.Tensor(pinv_leadfield)
         if(cfg.model.encoder == 'cnn'):
             self.cnn_encoder = Conv_att_simple_mlp(cfg.model.cnn.n_timeFilters,
                                                cfg.model.cnn.timeFilterLen,
@@ -69,7 +79,7 @@ class MultiModel_PL(pl.LightningModule):
                                                cfg.model.TST_single.cnn.global_att)
         if(cfg.model.encoder == 'MLLA'):
             # self.c_mlps = nn.ModuleList([Channel_mlp_CNN(cfg_i.n_channs, cfg.model.MLLA.cnn.n_channs) for cfg_i in cfg.data_cfg_list])
-            self.uni_mlp = Channel_mlp_CNN(len(cfg.model.MLLA.uni_channels), cfg.model.MLLA.cnn.n_channs)
+            self.uni_mlp = Channel_mlp_CNN(len(self.uni_channel_names), cfg.model.MLLA.cnn.n_channs)
             self.MLLA = channel_MLLA(
                 context_window=cfg.data_0.timeLen * cfg.data_0.fs,
                 patch_size=cfg.model.MLLA.patch_size,
@@ -97,6 +107,7 @@ class MultiModel_PL(pl.LightningModule):
                                                cfg.model.MLLA.cnn.global_att)
         self.clisa_loss = SimCLRLoss(cfg.train.loss.temp)
         self.cda_loss = CDALoss(cfg)
+        self.channel_projection_matrix = [[None] * len(self.cfg.data_cfg_list)][0]
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.cfg.train.lr, weight_decay=self.cfg.train.wd)
         return {'optimizer': optimizer}
@@ -130,12 +141,13 @@ class MultiModel_PL(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         loss = 0
         x_list, y_list = batch
+        n_dataset = len(x_list)
         # x_list = [x_i[0] for x_i in x_list]  # 提取数据
-        x_list = [self.channel_project(x_list[i][0], self.cfg.data_cfg_list[i].channels, self.cfg.model.MLLA.uni_channels) for i in range(len(x_list))]  # 提取数据
+        x_list = [self.channel_project(x_list[i][0], self.cfg.data_cfg_list[i].channels, dataset=i) for i in range(n_dataset-1)]  # 提取数据
         fea_clisa = []
         fea_cov = []
 
-        for dataset in range(len(x_list)-1):
+        for dataset in range(n_dataset-1):
             fea_clisa_i, fea_cov_i = self.forward(x_list[dataset], dataset)
             fea_clisa.append(fea_clisa_i)
             fea_cov.append(fea_cov_i)
@@ -173,20 +185,54 @@ class MultiModel_PL(pl.LightningModule):
     def predict_step(self, batch, batch_idx):
         x, y = batch
         # 用来临时指定predict时用谁的mlp。-1即为未训练的随机mlp。（原本是作为微调基底）
-        x = self.channel_project(x, self.cfg.data_val.channels, self.cfg.model.MLLA.uni_channels)
+        x = self.channel_project(x, self.cfg.data_val.channels, dataset=-1)
         fea_clisa_i, fea_cov_i = self.forward(x, 0)
         return fea_clisa_i
     
-    def channel_project(self, data, cha_source, cha_target):
+    def channel_project(self, data, cha_source, dataset=0):
+        device = data.device
         
-        # 压缩中间的单维度 [batch_size, 1, n_channel_source, n_time] => [batch_size, n_channel_source, n_time]
-        data = data.squeeze(1)
+        # 统一转换为大写进行匹配（根据你的实际代码调整）
+        standard_channels_upper = [name.upper() for name in self.uni_channel_names]
+        cha_source_upper = [name.upper() for name in cha_source]
         
-        # 获取目标通道在源中的索引（按cha_target顺序）
-        indices = [cha_source.index(ch) for ch in cha_target if ch in cha_source]
+        # 筛选有效通道
+        valid_indices = []
+        valid_source_indices = []
+        for idx, name in enumerate(cha_source_upper):
+            if name in standard_channels_upper:
+                valid_indices.append(standard_channels_upper.index(name))
+                valid_source_indices.append(idx)
+        if not valid_indices:
+            raise ValueError("没有有效的通道可以映射")
         
-        # 按索引筛选通道 [batch_size, n_channel_target, n_time]
-        projected_data = data[:, indices, :]
-        projected_data = projected_data.unsqueeze(1)
+        # 验证数据维度
+        batch_size, _, n_channel_source, n_time = data.shape
+        assert n_channel_source == len(cha_source), "输入通道数不匹配"
         
-        return projected_data
+        if self.channel_projection_matrix[dataset] is None:
+            # 将leadfield转换为张量并移动到对应设备
+            leadfield = torch.as_tensor(self.leadfield, device=device, dtype=data.dtype)  # (94, 61452)
+            pinv_leadfield = torch.as_tensor(self.pinv_leadfield, device=device, dtype=data.dtype)  # (94, 61452)
+            
+            projection_matrix = leadfield[valid_indices, :]  # [k, 61452]
+            combined_projection = projection_matrix @ pinv_leadfield  # [k, 94]
+            self.channel_projection_matrix[dataset] = combined_projection
+        else:
+            combined_projection = self.channel_projection_matrix[dataset]
+        
+        # 提取有效通道数据
+        data_valid = data[:, :, valid_source_indices, :]  # [batch, 1, k, time]
+        
+        # --- 合并后的投影计算 ---
+        # 重塑数据为 [batch*time, k]
+        data_reshaped = data_valid.permute(0, 3, 1, 2).reshape(-1, len(valid_indices))  # [batch*time, k]
+
+        
+        # 单次矩阵乘法 [batch*time, k] @ [k, 94] → [batch*time, 94]
+        back_projection = data_reshaped @ combined_projection
+        
+        # 恢复最终形状 [batch_size, 1, 94, n_time]
+        result = back_projection.reshape(batch_size, n_time, 1, 94).permute(0, 2, 3, 1)
+        
+        return result

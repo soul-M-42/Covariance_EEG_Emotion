@@ -2,7 +2,7 @@ import hydra
 from omegaconf import DictConfig
 import os
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "5, 6, 7"
+os.environ["CUDA_VISIBLE_DEVICES"] = "4"
 os.environ["WORLD_SIZE"]="1"
 import torch
 import numpy as np
