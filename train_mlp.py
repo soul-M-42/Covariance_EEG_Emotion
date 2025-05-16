@@ -1,6 +1,6 @@
 import hydra
 import os
-os.environ["CUDA_VISIBLE_DEVICES"]="4"
+os.environ["CUDA_VISIBLE_DEVICES"]="1"
 os.environ["WORLD_SIZE"]="1"
 from omegaconf import DictConfig
 from src.model.valMLP import simpleNN3
@@ -56,8 +56,8 @@ def train_mlp(cfg: DictConfig) -> None:
         labels_val = np.tile(onesub_label, len(val_subs))
         trainset = PDataset(data[train_subs].reshape(-1,data.shape[-1]), labels_train)
         valset = PDataset(data[val_subs].reshape(-1,data.shape[-1]), labels_val)
-        trainLoader = DataLoader(trainset, batch_size=cfg.val.mlp.batch_size, shuffle=True, num_workers=cfg.val.mlp.num_workers)
-        valLoader = DataLoader(valset, batch_size=cfg.val.mlp.batch_size, shuffle=False, num_workers=cfg.val.mlp.num_workers)
+        trainLoader = DataLoader(trainset, batch_size=cfg.val.mlp.batch_size, shuffle=True)
+        valLoader = DataLoader(valset, batch_size=cfg.val.mlp.batch_size, shuffle=False)
         model_mlp = simpleNN3(fea_dim, cfg.val.mlp.hidden_dim, cfg.val.mlp.out_dim,0.1)
         predictor = MLPModel(model_mlp, cfg.val.mlp)
         trainer = pl.Trainer(callbacks=[checkpoint_callback],

@@ -21,7 +21,7 @@ class FACED_Dataset(Dataset):
         # one_sub_label = self.sub_label[idx]
         return one_seq, one_label
 
-class SEEDV_Dataset(Dataset):
+class ext_Dataset(Dataset):
     def __init__(self, data, label):
         self.data = torch.FloatTensor(data) # n_samples * n_features
         self.label = torch.from_numpy(label)

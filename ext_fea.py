@@ -1,10 +1,10 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"]="1"
+os.environ["CUDA_VISIBLE_DEVICES"]="4"
 os.environ["WORLD_SIZE"]="1"
 import numpy as np
 from src.data.io_utils import load_finetune_EEG_data, get_load_data_func, load_processed_SEEDV_NEW_data
 from src.data.data_process import running_norm_onesubsession, LDS, LDS_acc, LDS_gpu
-from src.data.dataset import SEEDV_Dataset 
+from src.data.dataset import ext_Dataset 
 import torch
 from torch.utils.data import DataLoader
 from src.model.MultiModel_PL import MultiModel_PL
@@ -68,7 +68,7 @@ def ext_fea(cfg: DictConfig) -> None:
         Extractor.save_fea = True
         Extractor.cnn_encoder.set_saveFea(True)
         trainer = pl.Trainer(accelerator='gpu', devices=1)
-    for fold in tqdm(range(0,n_folds), desc='Extracting feature......'):
+    for fold in tqdm(range(3,n_folds), desc='Extracting feature......'):
         if cfg.val.extractor.normTrain:
             val_subs = val_subs_all[fold]
         else:
@@ -80,14 +80,17 @@ def ext_fea(cfg: DictConfig) -> None:
         print(f'val_subs:{val_subs}' )
         data_train = data[train_subs]
         if cfg.val.extractor.normTrain:
+            print('normTraining')
             data_fold = normTrain(data,data_train)
+            print('normDone')
         else:
             data_fold = data
         if cfg.val.extractor.use_pretrain:
             print('Use pretrain model:')
             data_fold = data_fold.reshape(-1, data_fold.shape[-2], data_fold.shape[-1])
             label_fold = np.tile(onesub_label, cfg.data_val.n_subs)
-            foldset = SEEDV_Dataset(data_fold, label_fold)
+            print(data_fold.shape)
+            foldset = ext_Dataset(data_fold, label_fold)
             del data_fold, label_fold
             fold_loader = DataLoader(foldset, batch_size=cfg.val.extractor.batch_size, shuffle=False, num_workers=cfg.train.num_workers)
             pred = trainer.predict(Extractor, fold_loader)
@@ -143,6 +146,12 @@ def ext_fea(cfg: DictConfig) -> None:
                     fea[sub,n_sample_sum_sessions_cum[s]:n_sample_sum_sessions_cum[s+1]] = running_norm_onesubsession(
                                                 fea[sub,n_sample_sum_sessions_cum[s]:n_sample_sum_sessions_cum[s+1]],
                                                 data_mean,data_var,cfg.val.extractor.rn_decay)
+        # else:
+        #     for sub in tqdm(range(cfg.data_val.n_subs), desc='Running norm......'):
+        #         for s in tqdm(range(len(n_sample_sum_sessions)), desc=f'running norm sub: {sub}', leave=False):
+        #             fea[sub,n_sample_sum_sessions_cum[s]:n_sample_sum_sessions_cum[s+1]] = running_norm_onesubsession(
+        #                                         fea[sub,n_sample_sum_sessions_cum[s]:n_sample_sum_sessions_cum[s+1]],
+        #                                         data_mean,data_var,cfg.val.extractor.rn_decay)
         # print(f'before LDS:{fea.shape}')
         if np.isinf(fea).any():
             print("There are inf values in the array")

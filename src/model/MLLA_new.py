@@ -30,6 +30,7 @@ class   channel_MLLA(nn.Module):
         # print(x.shape)
         # x has shape [Batch, D1, n_channels, T]
         B, D1, n_channels, T = x.shape
+        print(D1)
 
         # Permute and reshape to combine batch and channel dimensions
         x = x.permute(0, 2, 1, 3)  # Shape: [Batch, n_channels, D1, T]

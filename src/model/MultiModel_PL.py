@@ -13,6 +13,7 @@ from src.model.CNN_Attention import cnn_PatchTST, cnn_MLLA, Conv_att_simple_mlp
 from src.model.Channel_MLP import Channel_mlp_CNN
 from src.model.PatchTSTsingle import PatchTST_single_backbone
 from src.model.MLLA_new import channel_MLLA
+from src.model.Ablation_Transformer import TemporalTransformer
 from src.loss.loss import SimCLRLoss
 from src.loss.CDA_loss import CDALoss
 from src.utils import report_vram
@@ -22,16 +23,11 @@ class MultiModel_PL(pl.LightningModule):
         super().__init__()
         self.cfg = cfg
         self.save_fea = False
+        self.channel_projection_matrix = [[None] * len(self.cfg.data_cfg_list)][0]
+        self.channel_interpolate = np.load('channel_interpolate.npy').astype(int)
+        self.uni_channelname = self.cfg.model.MLLA.uni_channels
         
         # load channel project matrix
-        cha_weight_dir = '/mnt/dataset1/ws2319/workspace/ESI_pipelines/qingzhu/leadfield_fsaverage_standard_1020.npz'
-        cha_weight_data = np.load(cha_weight_dir)
-        leadfield =cha_weight_data['leadfield']
-        self.uni_channel_names = cha_weight_data['channel_names']
-        cha_weight_data.close()
-        pinv_leadfield = np.linalg.pinv(leadfield)
-        self.leadfield = torch.Tensor(leadfield)
-        self.pinv_leadfield = torch.Tensor(pinv_leadfield)
         if(cfg.model.encoder == 'cnn'):
             self.cnn_encoder = Conv_att_simple_mlp(cfg.model.cnn.n_timeFilters,
                                                cfg.model.cnn.timeFilterLen,
@@ -79,7 +75,7 @@ class MultiModel_PL(pl.LightningModule):
                                                cfg.model.TST_single.cnn.global_att)
         if(cfg.model.encoder == 'MLLA'):
             # self.c_mlps = nn.ModuleList([Channel_mlp_CNN(cfg_i.n_channs, cfg.model.MLLA.cnn.n_channs) for cfg_i in cfg.data_cfg_list])
-            self.uni_mlp = Channel_mlp_CNN(len(self.uni_channel_names), cfg.model.MLLA.cnn.n_channs)
+            self.uni_mlp = Channel_mlp_CNN(len(self.uni_channelname), cfg.model.MLLA.cnn.n_channs)
             self.MLLA = channel_MLLA(
                 context_window=cfg.data_0.timeLen * cfg.data_0.fs,
                 patch_size=cfg.model.MLLA.patch_size,
@@ -88,6 +84,29 @@ class MultiModel_PL(pl.LightningModule):
                 depth=cfg.model.MLLA.depth,
                 patch_stride=cfg.model.MLLA.patch_stride,
                 n_heads=cfg.model.MLLA.n_heads)
+            self.cnn_encoder = cnn_MLLA(cfg.model.MLLA.cnn.n_timeFilters,
+                                               cfg.model.MLLA.cnn.timeFilterLen,
+                                               cfg.model.MLLA.cnn.n_msFilters,
+                                               cfg.model.MLLA.cnn.msFilter_timeLen,
+                                               cfg.model.MLLA.cnn.n_channs,
+                                               cfg.model.MLLA.cnn.dilation_array,
+                                               cfg.model.MLLA.cnn.seg_att, 
+                                               cfg.model.MLLA.cnn.avgPoolLen,
+                                               cfg.model.MLLA.cnn.timeSmootherLen,
+                                               cfg.model.MLLA.cnn.multiFact,
+                                               cfg.model.MLLA.cnn.stratified, 
+                                               cfg.model.MLLA.cnn.activ,
+                                               cfg.model.MLLA.cnn.temp,
+                                               cfg.model.MLLA.cnn.saveFea,
+                                               cfg.model.MLLA.cnn.has_att,
+                                               cfg.model.MLLA.cnn.extract_mode,
+                                               cfg.model.MLLA.cnn.global_att)
+        if(cfg.model.encoder == 'Transformer'):
+            self.transformer_encoder = TemporalTransformer(n_chann=len(self.uni_channelname),
+                                                          dim=cfg.model.Transformer.dim,
+                                                          dim_out=cfg.model.Transformer.out_dim,
+                                                          n_heads=cfg.model.Transformer.n_heads)
+            self.uni_mlp = Channel_mlp_CNN(len(self.uni_channelname), cfg.model.MLLA.cnn.n_channs)
             self.cnn_encoder = cnn_MLLA(cfg.model.MLLA.cnn.n_timeFilters,
                                                cfg.model.MLLA.cnn.timeFilterLen,
                                                cfg.model.MLLA.cnn.n_msFilters,
@@ -137,17 +156,26 @@ class MultiModel_PL(pl.LightningModule):
                 self.cnn_encoder.saveFea = True
             x = self.cnn_encoder(x)
             return x, fea_cov
+        if(self.cfg.model.encoder == 'Transformer'):
+            x = self.transformer_encoder(x)
+            x = self.uni_mlp(x)
+            fea_cov = x
+            if self.save_fea:
+                self.cnn_encoder.saveFea = True
+            x = self.cnn_encoder(x)
+            return x, fea_cov
+
     
     def training_step(self, batch, batch_idx):
         loss = 0
         x_list, y_list = batch
         n_dataset = len(x_list)
         # x_list = [x_i[0] for x_i in x_list]  # 提取数据
-        x_list = [self.channel_project(x_list[i][0], self.cfg.data_cfg_list[i].channels, dataset=i) for i in range(n_dataset-1)]  # 提取数据
+        x_list = [self.channel_project(x_list[i][0], self.cfg.data_cfg_list[i].channels) for i in range(n_dataset)]  # 提取数据
         fea_clisa = []
         fea_cov = []
 
-        for dataset in range(n_dataset-1):
+        for dataset in range(n_dataset):
             fea_clisa_i, fea_cov_i = self.forward(x_list[dataset], dataset)
             fea_clisa.append(fea_clisa_i)
             fea_cov.append(fea_cov_i)
@@ -172,9 +200,6 @@ class MultiModel_PL(pl.LightningModule):
             }, on_step=False, on_epoch=True, prog_bar=True)
 
 
-        # 显式释放显存（可选）
-        del fea_clisa, fea_cov, clisa_loss_i, logits_i, labels_i, acc_1, acc_5
-        torch.cuda.empty_cache()  # 清空缓存
 
         return loss
     
@@ -185,54 +210,59 @@ class MultiModel_PL(pl.LightningModule):
     def predict_step(self, batch, batch_idx):
         x, y = batch
         # 用来临时指定predict时用谁的mlp。-1即为未训练的随机mlp。（原本是作为微调基底）
-        x = self.channel_project(x, self.cfg.data_val.channels, dataset=-1)
+        x = self.channel_project(x, self.cfg.data_val.channels)
         fea_clisa_i, fea_cov_i = self.forward(x, 0)
         return fea_clisa_i
     
-    def channel_project(self, data, cha_source, dataset=0):
+    def channel_project(self, data, cha_source):
+        # np.save('./visualize/original_eeg', data.cpu())
         device = data.device
+        batch_size, _, n_channel_source, n_timepoint = data.shape
+        n_channel_standard = len(self.uni_channelname)
         
-        # 统一转换为大写进行匹配（根据你的实际代码调整）
-        standard_channels_upper = [name.upper() for name in self.uni_channel_names]
-        cha_source_upper = [name.upper() for name in cha_source]
+        # 创建输入通道名称映射表（统一大写处理）
+        source_ch_map = {name.upper(): idx for idx, name in enumerate(cha_source)}
         
-        # 筛选有效通道
-        valid_indices = []
-        valid_source_indices = []
-        for idx, name in enumerate(cha_source_upper):
-            if name in standard_channels_upper:
-                valid_indices.append(standard_channels_upper.index(name))
-                valid_source_indices.append(idx)
-        if not valid_indices:
-            raise ValueError("没有有效的通道可以映射")
+        # 初始化结果张量（使用零值作为默认填充）
+        result = torch.zeros((batch_size, 1, n_channel_standard, n_timepoint),
+                            device=device,
+                            dtype=data.dtype)
         
-        # 验证数据维度
-        batch_size, _, n_channel_source, n_time = data.shape
-        assert n_channel_source == len(cha_source), "输入通道数不匹配"
-        
-        if self.channel_projection_matrix[dataset] is None:
-            # 将leadfield转换为张量并移动到对应设备
-            leadfield = torch.as_tensor(self.leadfield, device=device, dtype=data.dtype)  # (94, 61452)
-            pinv_leadfield = torch.as_tensor(self.pinv_leadfield, device=device, dtype=data.dtype)  # (94, 61452)
+        # 遍历所有标准通道
+        for std_idx, std_name in enumerate(self.uni_channelname):
+            std_name_upper = std_name.upper()
             
-            projection_matrix = leadfield[valid_indices, :]  # [k, 61452]
-            combined_projection = projection_matrix @ pinv_leadfield  # [k, 94]
-            self.channel_projection_matrix[dataset] = combined_projection
-        else:
-            combined_projection = self.channel_projection_matrix[dataset]
-        
-        # 提取有效通道数据
-        data_valid = data[:, :, valid_source_indices, :]  # [batch, 1, k, time]
-        
-        # --- 合并后的投影计算 ---
-        # 重塑数据为 [batch*time, k]
-        data_reshaped = data_valid.permute(0, 3, 1, 2).reshape(-1, len(valid_indices))  # [batch*time, k]
-
-        
-        # 单次矩阵乘法 [batch*time, k] @ [k, 94] → [batch*time, 94]
-        back_projection = data_reshaped @ combined_projection
-        
-        # 恢复最终形状 [batch_size, 1, 94, n_time]
-        result = back_projection.reshape(batch_size, n_time, 1, 94).permute(0, 2, 3, 1)
-        
+            # Case 1: 直接存在对应通道
+            if std_name_upper in source_ch_map:
+                src_idx = source_ch_map[std_name_upper]
+                result[:, :, std_idx] = data[:, :, src_idx]
+                continue
+                
+            # Case 2: 需要插值的情况
+            # 获取预存的最近邻索引（标准通道坐标系）
+            neighbor_std_indices = self.channel_interpolate[std_idx]
+            
+            # 寻找实际存在的最近邻通道（输入数据坐标系）
+            valid_src_indices = []
+            for neighbor_std_idx in neighbor_std_indices:
+                neighbor_std_name = self.uni_channelname[neighbor_std_idx.item()].upper()
+                if neighbor_std_name in source_ch_map:
+                    valid_src_indices.append(source_ch_map[neighbor_std_name])
+                    if len(valid_src_indices) == 3:  # 最多取3个
+                        break
+            
+            # 插值处理（根据找到的有效通道数量）
+            if len(valid_src_indices) > 0:
+                # 提取有效通道数据 [batch, 1, M, time]
+                neighbor_data = data[:, :, valid_src_indices, :]
+                
+                # 简单平均插值（可替换为加权平均）
+                interpolated = neighbor_data.mean(dim=2)  # [batch, 1, time]
+                result[:, :, std_idx] = interpolated
+            else:
+                # 处理无可用通道情况（可选方案）
+                # 方案1：保留零值 方案2：警告 方案3：抛出异常
+                print(f"Channel {std_name} has no available neighbors, filled with zeros")
+        # print(result.shape)
+        # np.save('./visualize/projected_eeg', result.cpu())
         return result

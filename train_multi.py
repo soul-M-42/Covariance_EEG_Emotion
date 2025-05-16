@@ -2,7 +2,7 @@ import hydra
 from omegaconf import DictConfig
 import os
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "4"
+os.environ["CUDA_VISIBLE_DEVICES"] = "4,5,6,7"
 os.environ["WORLD_SIZE"]="1"
 import torch
 import numpy as np
@@ -39,9 +39,9 @@ def run_pipeline(cfg: DictConfig):
         if not os.path.exists(logger_save_dir):
             os.makedirs(logger_save_dir)
             logger = TensorBoardLogger(save_dir=logger_save_dir, name=run_name)
-        cfg.data_cfg_list = [cfg.data_0, cfg.data_1, cfg.data_2, cfg.data_3, cfg.data_4, cfg.data_val]
+        cfg.data_cfg_list = [cfg.data_0, cfg.data_1, cfg.data_2, cfg.data_3, cfg.data_4]
         cfg.data_cfg_list = [cfg_i for cfg_i in cfg.data_cfg_list if cfg_i.dataset_name != 'None']
-        print(f'Using {len(cfg.data_cfg_list)-1} datasets to pretrain')
+        print(f'Using {len(cfg.data_cfg_list)} datasets to pretrain')
         dm = MultiDataModule(cfg.data_cfg_list, fold, n_folds, num_workers=cfg.train.num_workers,
                             n_pairs=cfg.train.n_pairs,
         )

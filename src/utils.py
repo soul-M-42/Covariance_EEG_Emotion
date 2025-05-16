@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 import os
-import hdf5storage
+import scipy
 import logging
 import socket
 from datetime import datetime, timedelta
@@ -273,7 +273,7 @@ def video_order_load(n_vids=28):
         # Here don't forget to arange the subjects arrangement
         # print(file)
         remark_file = os.path.join(datapath,file,'After_remarks.mat')
-        subject_remark = hdf5storage.loadmat(remark_file)['After_remark']
+        subject_remark = scipy.io.loadmat(remark_file)['After_remark']
         vid_orders[idx, :] = [np.squeeze(subject_remark[vid][0][2]) for vid in range(0,n_vids)]
     # print('vid_order shape: ', vid_orders.shape)
     return vid_orders

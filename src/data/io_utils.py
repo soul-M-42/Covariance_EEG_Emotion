@@ -44,7 +44,7 @@ def load_processed_FACED_NEW_data(dir, fs, n_chans, timeLen,timeStep,n_session=1
 
     list_files = os.listdir(dir)
     list_files = sorted(list_files, key=lambda x: int(re.search(r'\d+', x).group()))
-    assert len(list_files) == n_subs
+    list_files = list_files[:n_subs]
     n_samples = int((t-timeLen)/timeStep)+1
     points_len = int(timeLen*fs)
     points_step = int(timeStep*fs)
@@ -456,8 +456,7 @@ def load_processed_DEAP_NEW_data(dir, fs, n_chans, timeLen, timeStep, n_session=
     
     n_samples_onesub = np.array(n_samples_onesub)
     n_samples_sessions = n_samples_onesub.reshape(n_session,-1)
-    # For DEAP, this label is fake and should not be used, since DEAP actually have NO label.
-    label = [0, 1, 0, -1, 0] * 8
+    label = [0] * 20 + [1] * 20
     onesub_labels = []
     for i in range(len(label)):
         onesub_labels = onesub_labels + [label[i]]*n_samples_onesub[i]   
