@@ -18,6 +18,8 @@ def get_load_data_func(dataset_name):
         return load_processed_AMIGOS_NEW_data
     elif dataset_name == 'DEAP':
         return load_processed_DEAP_NEW_data
+    elif dataset_name == 'EMOEEG':
+        return load_processed_EMOEEG_NEW_data
     else:
         raise ValueError('dataset_name not found')
 
@@ -457,6 +459,58 @@ def load_processed_DEAP_NEW_data(dir, fs, n_chans, timeLen, timeStep, n_session=
     n_samples_onesub = np.array(n_samples_onesub)
     n_samples_sessions = n_samples_onesub.reshape(n_session,-1)
     label = [0] * 20 + [1] * 20
+    onesub_labels = []
+    for i in range(len(label)):
+        onesub_labels = onesub_labels + [label[i]]*n_samples_onesub[i]   
+    return data, np.array(onesub_labels), n_samples_onesub, n_samples_sessions
+
+
+def load_processed_EMOEEG_NEW_data(dir, fs, n_chans, timeLen, timeStep, n_session=1, 
+                                  n_subs=50, n_vids = 21, n_class=7):
+
+    list_files = os.listdir(dir)
+    list_files = sorted(list_files, key=lambda x: int(re.search(r'\d+', x).group()))
+    assert len(list_files) == n_subs
+    points_len = int(timeLen*fs)
+    points_step = int(timeStep*fs)
+    
+    # 3 session in all change delete the loop
+    file_path = os.path.join(dir,list_files[0])
+    onesub_data = sio.loadmat(file_path)  
+    n_time = np.squeeze(onesub_data['merged_n_samples_one']).astype(int)
+    n_points = np.array(n_time) * fs
+    n_samples_onesub = ((n_points-points_len)//points_step+1).astype(int)
+    n_samples_sum_onesub = np.sum(n_samples_onesub)
+    
+    data = np.empty((n_subs*n_samples_sum_onesub,n_chans,points_len),float)
+
+    cnt = 0
+    for idx,fn in enumerate(list_files):
+        file_path = os.path.join(dir,fn)
+        # print(fn)
+        # print(file_path)
+        onesub_data = sio.loadmat(file_path)     #keys: data,n_points
+        EEG_data = onesub_data['merged_data_all_cleared']   #(channels,tot_n_points_3session)  (60,tot_n_points_3session)
+        thr = 30 * np.median(np.abs(EEG_data))
+        EEG_data = (EEG_data - np.mean(EEG_data[np.abs(EEG_data)<thr])) / np.std(EEG_data[np.abs(EEG_data)<thr])
+        n_points_cum = np.concatenate((np.array([0]),np.cumsum(n_points)))
+
+        
+        n_vids_all = n_vids*n_session
+        for vid in range(n_vids_all):
+            # print('vid:',vid)
+            for i in range(n_samples_onesub[vid]):
+                # print('sample:',i)
+                data[cnt] = EEG_data[:,n_points_cum[vid]+i*points_step:n_points_cum[vid]+i*points_step+points_len]
+                cnt+=1
+    
+    n_samples_onesub = np.array(n_samples_onesub)
+    n_samples_sessions = n_samples_onesub.reshape(n_session,-1)
+    label = [0] * 3 + [1] * 3 + [2] * 3 + [3] * 3 + [4] * 3 + [5] * 3 + [6] * 3
+    # ['joy8', 'joy5', 'joy4', 'sad8', 'sad5', 'sad4', 
+    #                 'dis8','dis5', 'dis4', 'ins8', 'ins5', 'ins4', 
+    #                 'fear8', 'fear5', 'fear4', 'neu8', 'neu5', 'neu4', 
+    #                 'ten8', 'ten5', 'ten4']
     onesub_labels = []
     for i in range(len(label)):
         onesub_labels = onesub_labels + [label[i]]*n_samples_onesub[i]   

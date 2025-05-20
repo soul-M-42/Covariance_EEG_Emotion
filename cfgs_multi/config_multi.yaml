@@ -2,14 +2,14 @@
 defaults:
   - _self_
   - data@data_0: SEED
-  - data@data_1: SEEDIV
-  - data@data_2: SEEDVII
-  - data@data_3: FACED_blink_only_small
-  - data@data_4: DEAP
-  - data@data_val: SEEDV
+  - data@data_1: None
+  - data@data_2: None
+  - data@data_3: None
+  - data@data_4: None
+  - data@data_val: EMOEEG
 
 log:
-  run_name: 'DATASET_loo_SEEDV_NOISA'
+  run_name: 'DATASET_loo_SEEDV'
   mlp_cp_dir: 'mlp_cp'
 
 data_cfg_list:
@@ -36,11 +36,11 @@ train:
     to_riem: False
 
 val:
-  n_fold: '1->3'
+  n_fold: 'loo'
   extractor:
-    use_pretrain: True
-    ckpt_epoch: 10
-    reverse: True
+    use_pretrain: False
+    ckpt_epoch: 20
+    reverse: False
     normTrain: True
     batch_size: 64
     fea_mode: 'me'

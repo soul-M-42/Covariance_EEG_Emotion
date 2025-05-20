@@ -68,7 +68,7 @@ def ext_fea(cfg: DictConfig) -> None:
         Extractor.save_fea = True
         Extractor.cnn_encoder.set_saveFea(True)
         trainer = pl.Trainer(accelerator='gpu', devices=1)
-    for fold in tqdm(range(3,n_folds), desc='Extracting feature......'):
+    for fold in tqdm(range(n_folds), desc='Extracting feature......'):
         if cfg.val.extractor.normTrain:
             val_subs = val_subs_all[fold]
         else:
