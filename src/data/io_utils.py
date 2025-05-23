@@ -51,11 +51,12 @@ def load_processed_FACED_NEW_data(dir, fs, n_chans, timeLen,timeStep,n_session=1
     points_len = int(timeLen*fs)
     points_step = int(timeStep*fs)
 
-    if n_class == 2:
+    if n_class == 3:
         vid_sel = list(range(12))
+        vid_sel.extend(list(range(12,16)))
         vid_sel.extend(list(range(16,28)))
         # data = data[:, vid_sel, :, :] # sub, vid, n_channs, n_points
-        n_vids = 24
+        n_vids = 28
     elif n_class == 9:
         vid_sel = list(range(28))
         n_vids = 28
@@ -80,9 +81,10 @@ def load_processed_FACED_NEW_data(dir, fs, n_chans, timeLen,timeStep,n_session=1
     data = data.reshape(-1,data.shape[-2],data.shape[-1])
     # (subs*slices*vids)*channals*time
     
-    if n_class == 2:
+    if n_class == 3:
         label = [0] * 12
-        label.extend([1] * 12)
+        label.extend([1] * 4)
+        label.extend([2] * 12)
     elif n_class == 9:
         label = [0] * 3
         for i in range(1,4):
@@ -506,7 +508,15 @@ def load_processed_EMOEEG_NEW_data(dir, fs, n_chans, timeLen, timeStep, n_sessio
     
     n_samples_onesub = np.array(n_samples_onesub)
     n_samples_sessions = n_samples_onesub.reshape(n_session,-1)
-    label = [0] * 3 + [1] * 3 + [2] * 3 + [3] * 3 + [4] * 3 + [5] * 3 + [6] * 3
+    # label = [0] * 3 + [1] * 3 + [2] * 3 + [3] * 3 + [4] * 3 + [5] * 3 + [6] * 3
+    label = [0, 0, 0, 3, 3, 3, 5, 5, 5, 1, 1, 1, 4, 4, 4, 6, 6, 6, 2, 2, 2]
+    # 0: joy
+    # 1: ins
+    # 2: tend
+    # 3: sad
+    # 4: fear
+    # 5: dis
+    # 6: neu
     # ['joy8', 'joy5', 'joy4', 'sad8', 'sad5', 'sad4', 
     #                 'dis8','dis5', 'dis4', 'ins8', 'ins5', 'ins4', 
     #                 'fear8', 'fear5', 'fear4', 'neu8', 'neu5', 'neu4', 

@@ -6,10 +6,10 @@ defaults:
   - data@data_2: None
   - data@data_3: None
   - data@data_4: None
-  - data@data_val: EMOEEG
+  - data@data_val: SEEDV
 
 log:
-  run_name: 'DATASET_loo_SEEDV'
+  run_name: 'test'
   mlp_cp_dir: 'mlp_cp'
 
 data_cfg_list:
@@ -24,7 +24,7 @@ train:
   lr: 5e-4
   wd: 0.0001
   loss_temp: 0.07
-  max_epochs: 20
+  max_epochs: 10
   min_epochs: 1
   num_workers: 127
   save_interval: 5
@@ -32,16 +32,16 @@ train:
     clisa_loss: True
     temp: 0.07
     CDA_loss: True
-    CDA_factor: 0
+    CDA_factor: 1e-2
     to_riem: False
 
 val:
-  n_fold: 'loo'
+  n_fold: '1->3'
   extractor:
-    use_pretrain: False
-    ckpt_epoch: 20
-    reverse: False
-    normTrain: True
+    use_pretrain: True
+    ckpt_epoch: 10
+    reverse: True
+    normTrain: False
     batch_size: 64
     fea_mode: 'me'
     rn_decay: 0.990
@@ -53,7 +53,7 @@ val:
     hidden_dim: 128
     out_dim: ${data_val.n_class}
     batch_size: 256
-    max_epochs: 8
+    max_epochs: 25
     min_epochs: 2
     num_workers: ${train.num_workers}
   
@@ -142,6 +142,7 @@ model:
       has_att: True
       extract_mode: '${val.extractor.fea_mode}'
       global_att: False
+      att_type: 'conv'
   Transformer:
     dim: 128
     out_dim: 32

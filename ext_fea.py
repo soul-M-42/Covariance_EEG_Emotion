@@ -71,9 +71,10 @@ def ext_fea(cfg: DictConfig) -> None:
     for fold in tqdm(range(n_folds), desc='Extracting feature......'):
         if cfg.val.extractor.normTrain:
             val_subs = val_subs_all[fold]
+            train_subs = list(set(range(cfg.data_val.n_subs)) - set(val_subs))
         else:
-            val_subs = []
-        train_subs = list(set(range(cfg.data_val.n_subs)) - set(val_subs))
+            val_subs = list(range(cfg.data_val.n_subs))
+            train_subs = list(range(cfg.data_val.n_subs))
         if cfg.val.extractor.reverse:
             train_subs, val_subs = val_subs, train_subs
         print(f'train_subs:{train_subs}')
@@ -130,8 +131,8 @@ def ext_fea(cfg: DictConfig) -> None:
         # reorder
         if cfg.data_val.dataset_name == 'FACED':
             vid_order = video_order_load(cfg.data_val.n_vids)
-            if cfg.data_val.n_class == 2:
-                n_vids = 24
+            if cfg.data_val.n_class == 3:
+                n_vids = 28
             elif cfg.data_val.n_class == 9:
                 n_vids = 28
             vid_inds = np.arange(n_vids)
@@ -140,25 +141,18 @@ def ext_fea(cfg: DictConfig) -> None:
         n_sample_sum_sessions = np.sum(n_samples_sessions,1)
         n_sample_sum_sessions_cum = np.concatenate((np.array([0]), np.cumsum(n_sample_sum_sessions)))
         # print(f'before norm:{fea.shape}')
-        if(cfg.val.extractor.normTrain):
-            for sub in tqdm(range(cfg.data_val.n_subs), desc='Running norm......'):
-                for s in tqdm(range(len(n_sample_sum_sessions)), desc=f'running norm sub: {sub}', leave=False):
-                    fea[sub,n_sample_sum_sessions_cum[s]:n_sample_sum_sessions_cum[s+1]] = running_norm_onesubsession(
-                                                fea[sub,n_sample_sum_sessions_cum[s]:n_sample_sum_sessions_cum[s+1]],
-                                                data_mean,data_var,cfg.val.extractor.rn_decay)
-        # else:
-        #     for sub in tqdm(range(cfg.data_val.n_subs), desc='Running norm......'):
-        #         for s in tqdm(range(len(n_sample_sum_sessions)), desc=f'running norm sub: {sub}', leave=False):
-        #             fea[sub,n_sample_sum_sessions_cum[s]:n_sample_sum_sessions_cum[s+1]] = running_norm_onesubsession(
-        #                                         fea[sub,n_sample_sum_sessions_cum[s]:n_sample_sum_sessions_cum[s+1]],
-        #                                         data_mean,data_var,cfg.val.extractor.rn_decay)
+        for sub in tqdm(range(cfg.data_val.n_subs), desc='Running norm......'):
+            for s in tqdm(range(len(n_sample_sum_sessions)), desc=f'running norm sub: {sub}', leave=False):
+                fea[sub,n_sample_sum_sessions_cum[s]:n_sample_sum_sessions_cum[s+1]] = running_norm_onesubsession(
+                                            fea[sub,n_sample_sum_sessions_cum[s]:n_sample_sum_sessions_cum[s+1]],
+                                            data_mean,data_var,cfg.val.extractor.rn_decay)
         # print(f'before LDS:{fea.shape}')
         if np.isinf(fea).any():
             print("There are inf values in the array")
         else:
             print('no inf')
         if np.isnan(fea).any():
-            print("There are nan values in the array")
+            print("There are nan values in the array 2")
         else:
             print('no nan')
         # order back

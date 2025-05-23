@@ -100,7 +100,8 @@ class MultiModel_PL(pl.LightningModule):
                                                cfg.model.MLLA.cnn.saveFea,
                                                cfg.model.MLLA.cnn.has_att,
                                                cfg.model.MLLA.cnn.extract_mode,
-                                               cfg.model.MLLA.cnn.global_att)
+                                               cfg.model.MLLA.cnn.global_att,
+                                               cfg.model.MLLA.cnn.att_type,)
         if(cfg.model.encoder == 'Transformer'):
             self.transformer_encoder = TemporalTransformer(n_chann=len(self.uni_channelname),
                                                           dim=cfg.model.Transformer.dim,
@@ -123,7 +124,7 @@ class MultiModel_PL(pl.LightningModule):
                                                cfg.model.MLLA.cnn.saveFea,
                                                cfg.model.MLLA.cnn.has_att,
                                                cfg.model.MLLA.cnn.extract_mode,
-                                               cfg.model.MLLA.cnn.global_att)
+                                               cfg.model.MLLA.cnn.global_att,)
         self.clisa_loss = SimCLRLoss(cfg.train.loss.temp)
         self.cda_loss = CDALoss(cfg)
         self.channel_projection_matrix = [[None] * len(self.cfg.data_cfg_list)][0]

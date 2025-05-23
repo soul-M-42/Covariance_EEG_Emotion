@@ -214,7 +214,8 @@ class Conv_att_simple_mlp(nn.Module):
 class cnn_MLLA(nn.Module):
     # 配置说明 125Hz采样率基线  使用参数  dilation_array=[1,3,6,12]      seg_att = 15  avgPoolLen = 15  timeSmootherLen=3 mslen = 2,3   如果频率变化请在基线上乘以相应倍数
     def __init__(self, n_timeFilters, timeFilterLen, n_msFilters, msFilter_timeLen, n_channs=64, dilation_array=np.array([1,6,12,24]), seg_att=30, avgPoolLen = 30,
-                  timeSmootherLen=6, multiFact=2, stratified=[], activ='softmax', temp=1.0, saveFea=True, has_att=True, extract_mode='me', global_att=False):
+                  timeSmootherLen=6, multiFact=2, stratified=[], activ='softmax', temp=1.0, saveFea=True, has_att=True, extract_mode='me', global_att=False,
+                  att_type = 'conv'):
         super().__init__()
         self.stratified = stratified
         self.msFilter_timeLen = msFilter_timeLen
@@ -225,6 +226,12 @@ class cnn_MLLA(nn.Module):
         self.has_att = has_att
         self.extract_mode = extract_mode
         self.global_att = global_att
+        n_msFilters_total = n_timeFilters * n_msFilters * 4
+        if att_type == 'conv':
+            self.att_model = conv_att(seg_att=seg_att, global_att=global_att, activ=activ, n_msFilters_total=n_msFilters_total)
+        elif att_type == 'trans':
+            self.att_model = trans_att(embed_dim=n_msFilters_total)
+
         
 
         # time and spacial conv
@@ -267,16 +274,7 @@ class cnn_MLLA(nn.Module):
 
         # Attention
         if self.has_att:
-            att_w = F.relu(self.att_conv(F.pad(out, (self.seg_att-1, 0), "constant", 0)))
-            if self.global_att:
-                att_w = torch.mean(F.pad(att_w, (self.seg_att-1, 0), "constant", 0),-1).unsqueeze(-1) # (B, dims, 1, 1)
-            else:
-                att_w = self.att_pool(F.pad(att_w, (self.seg_att-1, 0), "constant", 0)) # (B, dims, 1, T)
-            att_w = self.att_pointConv(att_w)
-            if self.activ == 'relu':
-                att_w = F.relu(att_w)
-            elif self.activ == 'softmax':
-                att_w = F.softmax(att_w / self.temp, dim=1)
+            att_w = self.att_model(out)
             out = att_w * F.relu(out)          # (B, dims, 1, T)
         else:
             if self.extract_mode == 'me':
@@ -302,3 +300,77 @@ class cnn_MLLA(nn.Module):
 
     def set_stratified(self,stratified):
         self.stratified = stratified
+
+class conv_att(nn.Module):
+    def __init__(self, seg_att, n_msFilters_total, global_att=False, activ='relu', temp=1.0):
+        super(conv_att, self).__init__()
+        self.seg_att = seg_att
+        self.global_att = global_att
+        self.activ = activ
+        self.temp = temp
+
+        # Convolution layers
+        self.att_conv = nn.Conv2d(n_msFilters_total, n_msFilters_total, (1, self.seg_att), groups=n_msFilters_total)
+        self.att_pool = nn.AvgPool2d((1, self.seg_att), stride=1)
+        self.att_pointConv = nn.Conv2d(n_msFilters_total, n_msFilters_total, (1, 1))
+
+    def forward(self, out):
+        # Pad and apply attention convolution
+        att_w = F.relu(self.att_conv(F.pad(out, (self.seg_att - 1, 0), "constant", 0)))
+
+        # Global or local attention
+        if self.global_att:
+            att_w = torch.mean(F.pad(att_w, (self.seg_att - 1, 0), "constant", 0), dim=-1).unsqueeze(-1)
+        else:
+            att_w = self.att_pool(F.pad(att_w, (self.seg_att - 1, 0), "constant", 0))
+
+        # Pointwise convolution
+        att_w = self.att_pointConv(att_w)
+
+        # Activation
+        if self.activ == 'relu':
+            att_w = F.relu(att_w)
+        elif self.activ == 'softmax':
+            att_w = F.softmax(att_w / self.temp, dim=1)
+
+        return att_w
+
+
+class trans_att(nn.Module):
+    def __init__(self, embed_dim, num_heads=4, global_att=False, activ='softmax', temp=1.0):
+        super(trans_att, self).__init__()
+        self.global_att = global_att
+        self.activ = activ
+        self.temp = temp
+
+        self.attn = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)
+        self.norm = nn.LayerNorm(embed_dim)
+        self.ffn = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim),
+            nn.ReLU(),
+            nn.Linear(embed_dim, embed_dim)
+        )
+
+    def forward(self, x):
+        # x: (B, C, 1, T) -> reshape to (B, T, C)
+        B, C, _, T = x.shape
+        x_reshaped = x.view(B, C, T).permute(0, 2, 1)
+
+        # Apply multi-head attention
+        attn_out, _ = self.attn(x_reshaped, x_reshaped, x_reshaped)
+        
+        # Residual + Norm
+        x_norm = self.norm(x_reshaped + attn_out)
+
+        # Feed-forward network
+        out = self.ffn(x_norm)
+
+        # Activation
+        if self.activ == 'relu':
+            out = F.relu(out)
+        elif self.activ == 'softmax':
+            out = F.softmax(out / self.temp, dim=-1)  # Softmax across feature dim
+
+        # Reshape back to (B, C, 1, T)
+        out = out.permute(0, 2, 1).unsqueeze(2)
+        return out

@@ -26,6 +26,8 @@ def train_mlp(cfg: DictConfig) -> None:
     val_subs_all = cfg.data_val.val_subs_all
     if cfg.val.n_fold == "loo":
         val_subs_all = [[i] for i in range(cfg.data_val.n_subs)]
+    elif cfg.val.n_fold == "inter":
+        val_subs_all = [[]]
     n_folds = len(val_subs_all)
 
     # storage for metrics
@@ -39,7 +41,7 @@ def train_mlp(cfg: DictConfig) -> None:
         checkpoint_callback = ModelCheckpoint(
             monitor="mlp/val/acc", verbose=True, mode="max",
             dirpath=cp_dir,
-            filename=f'mlp_f{fold}_wd={cfg.val.mlp.wd}_{{epoch}}',
+            filename=f'{cfg.data_val.dataset_name}_mlp_f{fold if cfg.val.n_fold != 'inter' else '_inter'}_wd={cfg.val.mlp.wd}_{{epoch}}',
             save_top_k=1,
         )
 
@@ -48,17 +50,18 @@ def train_mlp(cfg: DictConfig) -> None:
         train_subs = list(set(range(cfg.data_val.n_subs)) - set(val_subs))
         if cfg.val.extractor.reverse:
             train_subs, val_subs = val_subs, train_subs
+        if cfg.val.n_fold == 'inter':
+            val_subs = train_subs
         print(f"Finetune subjects: {train_subs}")
         print(f"Test subjects:   {val_subs}")
 
         # load features
         save_dir = os.path.join(cfg.data_val.data_dir, 'ext_fea')
-        save_path = os.path.join(
-            save_dir,
-            f"{cfg.log.run_name}_f{fold}_fea_"
-            + (f"epoch={(cfg.val.extractor.ckpt_epoch-1):02d}.ckpt" if cfg.val.extractor.use_pretrain else "")
-            + f"{cfg.val.extractor.fea_mode}.npy"
-        )
+        if not cfg.val.extractor.normTrain:
+            save_path = os.path.join(save_dir,cfg.log.run_name+f'_all_fea_{f'epoch={(cfg.val.extractor.ckpt_epoch-1):02d}.ckpt' if cfg.val.extractor.use_pretrain else ""}{cfg.val.extractor.fea_mode if cfg.val.extractor.use_pretrain else cfg.val.extractor.fea_mode}.npy')
+        else:
+            save_path = os.path.join(save_dir,cfg.log.run_name+f'_f{fold}_fea_{f'epoch={(cfg.val.extractor.ckpt_epoch-1):02d}.ckpt' if cfg.val.extractor.use_pretrain else ""}{cfg.val.extractor.fea_mode if cfg.val.extractor.use_pretrain else cfg.val.extractor.fea_mode}.npy')
+        print(f'loading from {save_path}')
         data = np.load(save_path)
         data = np.nan_to_num(data)
         data = data.reshape(cfg.data_val.n_subs, -1, data.shape[-1])
@@ -81,8 +84,8 @@ def train_mlp(cfg: DictConfig) -> None:
         lightning_module = MLPModel(base_model, cfg.val.mlp)
         trainer = pl.Trainer(
             callbacks=[checkpoint_callback],
-            max_epochs=cfg.val.mlp.max_epochs,
-            min_epochs=cfg.val.mlp.min_epochs,
+            max_epochs=cfg.val.mlp.max_epochs if cfg.val.n_fold != 'inter' else 10,
+            min_epochs=cfg.val.mlp.min_epochs if cfg.val.n_fold != 'inter' else 0,
             accelerator='gpu', devices=1,
             limit_val_batches=1.0
         )
