@@ -3,7 +3,7 @@ import os
 import scipy.io as sio
 import matplotlib.pyplot as plt
 
-datadir = '/mnt/dataset0/qingzhu/AutoICA_Processed_EEG/Faced/Processed_data_filter_epoch_0.50_47_Auto_ICA_def_Threshold/processed_data'
+datadir = '/mnt/dataset0/**/AutoICA_Processed_EEG/Faced/Processed_data_filter_epoch_0.50_47_Auto_ICA_def_Threshold/processed_data'
 files = os.listdir(datadir)
 files = sorted(files)
 # print(files)

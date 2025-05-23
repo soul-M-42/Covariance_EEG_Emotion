@@ -1,5 +1,5 @@
 dataset_name: 'DEAP'
-data_dir: '/mnt/dataset0/qingzhu/AutoICA_Processed_EEG/DEAP/reordered_correct'
+data_dir: '/mnt/dataset0/**/AutoICA_Processed_EEG/DEAP/reordered_correct'
 fs: 125
 n_channs: 32
 n_session: 1

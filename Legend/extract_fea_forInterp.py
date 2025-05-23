@@ -66,7 +66,7 @@ def ext_fea(cfg: DictConfig) -> None:
         del data2_fold, label2_fold
         fold_loader = DataLoader(foldset, batch_size=cfg.ext_fea.batch_size, shuffle=False, num_workers=cfg.train.num_workers)
         # checkpoint =  os.path.join(cfg.log.cp_dir,cfg.data.dataset_name,cfg.log.exp_name+'_r'+str(cfg.log.run)+f'_f{fold}_best.ckpt')
-        checkpoint =  '/home/ncclab/shenxinke/att_model/CLISA_Hydra/params/FACEDnewdata/FACEDnewdata/segatt_15_r13_f%d_best.ckpt' % fold
+        checkpoint =  '/home/ncclab/shen**/att_model/CLISA_Hydra/params/FACEDnewdata/FACEDnewdata/segatt_15_r13_f%d_best.ckpt' % fold
         Extractor = ExtractorModel.load_from_checkpoint(checkpoint_path=checkpoint)
         Extractor.model.stratified = []
         log.info('load model:'+checkpoint)

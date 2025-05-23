@@ -265,7 +265,7 @@ def top_k_accuracy(logits, labels, ks=[1, 5]):
     return acc_list
 
 def video_order_load(n_vids=28):
-    datapath = '/mnt/dataset0/qingzhu/AutoICA_Processed_EEG/Faced/Processed_data_filter_epoch_0.50_47_Auto_ICA_def_Threshold/After_remarks'
+    datapath = '/mnt/dataset0/**/AutoICA_Processed_EEG/Faced/Processed_data_filter_epoch_0.50_47_Auto_ICA_def_Threshold/After_remarks'
     filesPath = os.listdir(datapath)
     filesPath.sort()
     vid_orders = np.zeros((len(filesPath), n_vids),dtype=int)

@@ -85,7 +85,7 @@ ext_fea:
   use_pretrain: false
 data_0:
   dataset_name: SEED
-  data_dir: /mnt/dataset0/qingzhu/AutoICA_Processed_EEG/SEED/Processed_data_filter_0.50_47.00_AutoICA_Cus_Threshold
+  data_dir: /mnt/dataset0/**/AutoICA_Processed_EEG/SEED/Processed_data_filter_0.50_47.00_AutoICA_Cus_Threshold
   fs: 125
   n_channs: 60
   n_session: 3
@@ -135,7 +135,7 @@ data_0:
     - 10
 data_1:
   dataset_name: SEEDIV
-  data_dir: /mnt/dataset0/qingzhu/AutoICA_Processed_EEG/SEED-IV-new/Processed_MAT
+  data_dir: /mnt/dataset0/**/AutoICA_Processed_EEG/SEED-IV-new/Processed_MAT
   fs: 125
   n_channs: 62
   n_session: 3
@@ -148,7 +148,7 @@ data_1:
   timeStep2: 1
 data_2:
   dataset_name: FACED
-  data_dir: /mnt/dataset0/xinke/nsy/Faced_blink_only
+  data_dir: /mnt/dataset0/**/**/Faced_blink_only
   fs: 125
   n_channs: 30
   n_session: 1
@@ -212,7 +212,7 @@ data_2:
   - O2
 data_val:
   dataset_name: SEED
-  data_dir: /mnt/dataset0/qingzhu/AutoICA_Processed_EEG/SEED/Processed_data_filter_0.50_47.00_AutoICA_Cus_Threshold
+  data_dir: /mnt/dataset0/**/AutoICA_Processed_EEG/SEED/Processed_data_filter_0.50_47.00_AutoICA_Cus_Threshold
   fs: 125
   n_channs: 60
   n_session: 3

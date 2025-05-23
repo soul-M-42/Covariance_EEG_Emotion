@@ -1,5 +1,5 @@
 dataset_name: 'SEEDVII'
-data_dir: '/mnt/dataset0/qingzhu/AutoICA_Processed_EEG/SEED-VII/Processed_MAT'
+data_dir: '/mnt/dataset0/**/AutoICA_Processed_EEG/SEED-VII/Processed_MAT'
 fs: 125
 n_channs: 62
 n_session: 4
