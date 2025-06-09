@@ -264,5 +264,5 @@ class MultiModel_PL(pl.LightningModule):
                 # 方案1：保留零值 方案2：警告 方案3：抛出异常
                 print(f"Channel {std_name} has no available neighbors, filled with zeros")
         # print(result.shape)
-        # np.save('./visualize/projected_eeg', result.cpu())
+        # np.save('./visualize/projected_eeg_emo', result.cpu())
         return result

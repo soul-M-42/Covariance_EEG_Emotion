@@ -39,7 +39,7 @@ def train_mlp(cfg: DictConfig) -> None:
         checkpoint_callback = ModelCheckpoint(
             monitor="mlp/val/acc", verbose=True, mode="max",
             dirpath=cp_dir,
-            filename=f'mlp_f{fold}_wd={cfg.val.mlp.wd}_{{epoch}}',
+            filename=f'{cfg.data_val.dataset_name}_mlp_f{fold}_wd={cfg.val.mlp.wd}_{{epoch}}',
             save_top_k=1,
         )
 
@@ -55,7 +55,7 @@ def train_mlp(cfg: DictConfig) -> None:
         save_dir = os.path.join(cfg.data_val.data_dir, 'ext_fea')
         save_path = os.path.join(
             save_dir,
-            f"{cfg.log.run_name}_f{fold}_fea_"
+            f"{cfg.log.run_name}_{f'{fold}' if cfg.val.extractor.normTrain else 'all'}_fea_"
             + (f"epoch={(cfg.val.extractor.ckpt_epoch-1):02d}.ckpt" if cfg.val.extractor.use_pretrain else "")
             + f"{cfg.val.extractor.fea_mode}.npy"
         )

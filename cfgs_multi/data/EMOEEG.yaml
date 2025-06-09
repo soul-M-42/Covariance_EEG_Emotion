@@ -3,7 +3,7 @@ data_dir: '/mnt/dataset0/qingzhu/AutoICA_Processed_EEG/EMOEEG_Pretrain/original/
 fs: 125
 n_channs: 62
 n_session: 1
-n_subs: 50
+n_subs: 51
 n_vids: 21
 n_class: 7
 
