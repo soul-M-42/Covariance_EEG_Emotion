@@ -95,7 +95,13 @@ def ext_fea(cfg: DictConfig) -> None:
             del data_fold, label_fold
             fold_loader = DataLoader(foldset, batch_size=cfg.val.extractor.batch_size, shuffle=False, num_workers=cfg.train.num_workers)
             pred = trainer.predict(Extractor, fold_loader)
+            mllaout = [pred_i[2] for pred_i in pred]
+            pred = [pred_i[0] for pred_i in pred]
             pred = torch.cat(pred, dim=0).cpu().numpy()
+            mllaout = torch.cat(mllaout, dim=0).cpu().numpy()
+            mllaout_path = f'./visualize/mllaout_{cfg.data_val.dataset_name}'
+            np.save(mllaout_path, mllaout)
+            print(f'MLLA out saved to {mllaout_path}')
             # Pred = [n_fea, dim, 1, T]
             fea = cal_fea(pred,cfg.val.extractor.fea_mode)
             fea = fea.reshape(cfg.data_val.n_subs,-1,fea.shape[-1])

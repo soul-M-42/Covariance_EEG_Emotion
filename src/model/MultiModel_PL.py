@@ -131,7 +131,7 @@ class MultiModel_PL(pl.LightningModule):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.cfg.train.lr, weight_decay=self.cfg.train.wd)
         return {'optimizer': optimizer}
     
-    def forward(self, x, dataset=0):
+    def forward(self, x, dataset=0, returnMLLAout=False):
         if(self.cfg.model.encoder == 'cnn'):
             if self.save_fea:
                 self.cnn_encoder.saveFea = True
@@ -148,6 +148,8 @@ class MultiModel_PL(pl.LightningModule):
             return x
         if(self.cfg.model.encoder == 'MLLA'):
             x = self.MLLA(x)
+            if(returnMLLAout):
+                mllaout = x
             x = torch.permute(x, (0, 3, 1, 2))
             # x = self.c_mlps[dataset](x)
             x = self.uni_mlp(x)
@@ -155,6 +157,8 @@ class MultiModel_PL(pl.LightningModule):
             if self.save_fea:
                 self.cnn_encoder.saveFea = True
             x = self.cnn_encoder(x)
+            if(returnMLLAout):
+                return x, fea_cov, mllaout
             return x, fea_cov
         if(self.cfg.model.encoder == 'Transformer'):
             x = self.transformer_encoder(x)
@@ -211,8 +215,8 @@ class MultiModel_PL(pl.LightningModule):
         x, y = batch
         # 用来临时指定predict时用谁的mlp。-1即为未训练的随机mlp。（原本是作为微调基底）
         x = self.channel_project(x, self.cfg.data_val.channels)
-        fea_clisa_i, fea_cov_i = self.forward(x, 0)
-        return fea_clisa_i
+        fea_clisa_i, fea_cov_i, mllaout = self.forward(x, 0, returnMLLAout=True)
+        return fea_clisa_i, fea_cov_i, mllaout
     
     def channel_project(self, data, cha_source):
         # np.save('./visualize/original_eeg', data.cpu())

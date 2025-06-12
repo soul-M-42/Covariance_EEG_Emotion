@@ -1,15 +1,15 @@
 
 defaults:
   - _self_
-  - data@data_0: SEED
-  - data@data_1: SEEDIV
-  - data@data_2: SEEDV
-  - data@data_3: SEEDVII
-  - data@data_4: FACED_blink_only_small
+  - data@data_0: FACED_blink_only_small
+  - data@data_1: None
+  - data@data_2: None
+  - data@data_3: None
+  - data@data_4: None
   - data@data_val: FACED_blink_only_small
 
 log:
-  run_name: 'norelu_DATASET_loo_FACED'
+  run_name: 'test'
   mlp_cp_dir: 'mlp_cp'
 
 data_cfg_list:
@@ -19,7 +19,7 @@ train:
   seed: 19260832
   n_fold: 1
   n_pairs: 1024
-  n_gpu_use: 4
+  n_gpu_use: 2
   iftest: False
   lr: 5e-4
   wd: 0.0001
